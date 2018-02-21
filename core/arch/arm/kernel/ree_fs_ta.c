@@ -138,7 +138,6 @@ static TEE_Result ta_open(const TEE_UUID *uuid,
 	offs = SHDR_GET_SIZE(shdr);
 
 	// set up sha256 context
-
 	res = crypto_hash_alloc_ctx(&sha256_ctx, TEE_ALG_SHA256);
 	if (res != TEE_SUCCESS)
 		goto error_free_hash;
@@ -249,7 +248,7 @@ static TEE_Result ta_read(struct user_ta_store_handle *h, void *data,
 	if (res != TEE_SUCCESS)
 		return TEE_ERROR_SECURITY;
 
-	res = crypto_ops.hash.update(h->sha256_ctx, TEE_ALG_SHA256, dst, len);
+	res = crypto_hash_update(h->sha256_ctx, TEE_ALG_SHA256, dst, len);
 	if (res != TEE_SUCCESS)
 		return TEE_ERROR_SECURITY;
 
@@ -269,7 +268,7 @@ static void ta_close(struct user_ta_store_handle *h)
 	if (!h)
 		return;
 	thread_rpc_free_payload(h->cookie, h->mobj);
-	free(h->sha256_ctx);
+	crypto_hash_free_ctx(h->sha256_ctx);
 	free(h->hash_ctx);
 	free(h->shdr);
 	free(h);
