@@ -151,8 +151,6 @@
 /* Common RAM and cache controller configuration */
 #define CFG_TEE_RAM_VA_SIZE		(1024 * 1024)
 
-#define CFG_TEE_CORE_NB_CORE		1
-
 #define DDR_PHYS_START			DRAM0_BASE
 #define DDR_SIZE			DRAM0_SIZE
 
