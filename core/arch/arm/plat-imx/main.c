@@ -170,7 +170,7 @@ void init_sec_mon(unsigned long nsec_entry)
 {
 	struct sm_nsec_ctx *nsec_ctx;
 
-        assert(nsec_entry != PADDR_INVALID);
+	assert(nsec_entry != PADDR_INVALID);
 
 	/* Initialize secure monitor */
 	nsec_ctx = sm_get_nsec_ctx();
@@ -320,4 +320,14 @@ static TEE_Result init_tzc380(void)
 
 service_init(init_tzc380);
 #endif // #ifdef CFG_TZC380
+
+#ifdef CFG_IMX_IOMUX
+static TEE_Result iomux_init(void)
+{
+	imx_iomux_init();
+	return TEE_SUCCESS;
+}
+
+driver_init(iomux_init);
+#endif // #ifdef CFG_IMX_IOMUX
 
