@@ -140,6 +140,10 @@ CFG_HWSUPP_MEM_PERM_WXN = n
 CFG_IMX_WDOG ?= y
 endif
 
+ifeq ($(filter y, $(CFG_IMX_WDOG)), y)
+$(call force,CFG_DT,y)
+endif
+
 CFG_MMAP_REGIONS ?= 24
 
 ta-targets = ta_arm32
