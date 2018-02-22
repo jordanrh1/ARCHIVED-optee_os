@@ -131,10 +131,12 @@
 #endif /* #if defined(CFG_CONSOLE_UART) */
 
 /* Board specific RAM size */
+#if defined(PLATFORM_FLAVOR_mx6qhmbedge)
+#define DRAM0_SIZE			0x80000000
+#endif
 #if defined(PLATFORM_FLAVOR_mx6qsabrelite) || \
 	defined(PLATFORM_FLAVOR_mx6qsabresd) || \
-	defined(PLATFORM_FLAVOR_mx6dlsabresd) || \
-	defined(PLATFORM_FLAVOR_mx6qhmbedge)
+	defined(PLATFORM_FLAVOR_mx6dlsabresd)
 #define DRAM0_SIZE			0x40000000
 #endif
 #if defined(PLATFORM_FLAVOR_mx6dhmbedge) || \
