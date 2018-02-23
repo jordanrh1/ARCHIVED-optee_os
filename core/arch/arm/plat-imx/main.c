@@ -166,20 +166,6 @@ void main_secondary_init_gic(void)
 }
 #endif
 
-void init_sec_mon(unsigned long nsec_entry)
-{
-	struct sm_nsec_ctx *nsec_ctx;
-
-	assert(nsec_entry != PADDR_INVALID);
-
-	/* Initialize secure monitor */
-	nsec_ctx = sm_get_nsec_ctx();
-	nsec_ctx->mon_lr = nsec_entry;
-	nsec_ctx->mon_spsr = CPSR_MODE_SVC | CPSR_I;
-
-	DMSG("nsec_entry=0x%08lX, SPSR=0x%08X \n",nsec_entry, nsec_ctx->mon_spsr);
-}
-
 #ifdef CFG_TZC380
 /* Translation from TZC region sizes to their TZC register encoding values */
 struct tzc_encoding {
