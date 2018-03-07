@@ -47,7 +47,7 @@
 static int suspended_init;
 
 int imx7_cpu_suspend(uint32_t power_state __unused, uintptr_t entry,
-		     uint32_t context_id __unused, struct sm_nsec_ctx *nsec)
+		     uint32_t context_id, struct sm_nsec_ctx *nsec)
 {
 	uint32_t suspend_ocram_base = core_mmu_get_va(TRUSTZONE_OCRAM_START +
 						      SUSPEND_OCRAM_OFFSET,
@@ -81,6 +81,7 @@ int imx7_cpu_suspend(uint32_t power_state __unused, uintptr_t entry,
 
 	/* Set entry for back to Linux */
 	nsec->mon_lr = (uint32_t)entry;
+	nsec->r0 = context_id;
 
 	main_init_gic();
 
