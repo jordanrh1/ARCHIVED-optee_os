@@ -59,13 +59,23 @@ int psci_features(uint32_t psci_fid)
 	case PSCI_CPU_ON:
 		return 0;
 #endif
+	case PSCI_PSCI_FEATURES:
 	case PSCI_SYSTEM_OFF:
 	case PSCI_SYSTEM_RESET:
+	case PSCI_VERSION:
 		return 0;
+
+	case PSCI_CPU_SUSPEND:
+		return PSCI_OS_INITIATED | PSCI_EXTENDED_STATE_ID;
 
 	default:
 		return PSCI_RET_NOT_SUPPORTED;
 	}
+}
+
+uint32_t psci_version(void)
+{
+	return PSCI_VERSION_1_0;
 }
 
 #ifdef CFG_BOOT_SECONDARY_REQUEST
@@ -197,9 +207,21 @@ __weak int imx7_cpu_suspend(uint32_t power_state __unused,
 }
 
 int psci_cpu_suspend(uint32_t power_state,
-		     uintptr_t entry, uint32_t context_id __unused,
+		     uintptr_t entry, uint32_t context_id,
 		     struct sm_nsec_ctx *nsec)
 {
+	DMSG("power_state = 0x%x", power_state);
+	switch (power_state) {
+	case 0x41000022:	// XXX put core and cluster into suspend
+	case 0x40000002:	// XXX put just this core into suspend
+		return imx7_cpu_suspend(power_state, entry,
+					context_id, nsec);
+	
+	default:
+		return PSCI_RET_INVALID_PARAMETERS;
+	}
+		
+#if 0
 	uint32_t id, type;
 	int ret = PSCI_RET_INVALID_PARAMETERS;
 
@@ -218,11 +240,12 @@ int psci_cpu_suspend(uint32_t power_state,
 	 * ID 1 means low power idle
 	 * TODO: follow PSCI StateID sample encoding.
 	 */
-	DMSG("ID = %d\n", id);
+
+	DMSG("ID = 0x%x\n", id);
 	if (id == 1) {
 		/* Not supported now */
 		return ret;
-	} else if (id == 0) {
+	} else if (id == 0x40000002) {
 		if (soc_is_imx7ds()) {
 			return imx7_cpu_suspend(power_state, entry,
 						context_id, nsec);
@@ -230,9 +253,10 @@ int psci_cpu_suspend(uint32_t power_state,
 		return ret;
 	}
 
-	DMSG("ID %d not supported\n", id);
+	DMSG("ID 0x%x not supported\n", id);
 
 	return ret;
+#endif
 }
 
 void psci_system_reset(void)
