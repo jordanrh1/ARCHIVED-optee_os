@@ -63,6 +63,9 @@ int imx7_cpu_suspend(uint32_t power_state __unused, uintptr_t entry,
 	/* Store non-sec ctx regs */
 	sm_save_modes_regs(&nsec->mode_regs);
 
+	DMSG("Calling sm_pm_cpu_suspend. p=0x%x, suspend_ocram_base=0x%x",
+	     (uint32_t)p, (uint32_t)suspend_ocram_base);
+
 	ret = sm_pm_cpu_suspend((uint32_t)p, (int (*)(uint32_t))
 				(suspend_ocram_base + sizeof(*p)));
 	/*

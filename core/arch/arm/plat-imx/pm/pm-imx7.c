@@ -171,6 +171,8 @@ int imx7_suspend_init(void)
 	struct imx7_pm_info *p = (struct imx7_pm_info *)suspend_ocram_base;
 	struct imx7_pm_data *pm_data;
 
+	DMSG("Initializing iram tbl");
+
 	pm_imx7_iram_tbl_init();
 
 	dcache_op_level1(DCACHE_OP_CLEAN_INV);
@@ -252,5 +254,6 @@ int imx7_suspend_init(void)
 	 */
 	icache_inv_all();
 
+	DMSG("Successfully initialized suspend");
 	return 0;
 }
