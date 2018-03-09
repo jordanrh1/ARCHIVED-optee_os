@@ -86,11 +86,24 @@ static void gpc_mask_all_irqs(struct imx7_pm_info *p)
 static int imx7_do_core_power_down(uint32_t arg)
 {
 	uint32_t val;
+	int core_idx;
 	struct imx7_pm_info *p = (struct imx7_pm_info *)arg;
+
+	core_idx = get_core_pos();
 
 	// XXX do we need to flush cache? Maybe. Looks like 
 	// sm_pm_cpu_suspend_save flushes L1 cache before calling us.
 	// Looks like core-local state gets saved to stack
+
+	/* Program ACK selection for LPM */
+	write32(GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK |
+                GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK,
+                p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+
+	/* setup resume address and parameter */
+	val = TRUSTZONE_OCRAM_START + SUSPEND_OCRAM_OFFSET + sizeof(*p);
+	write32(val, p->src_va_base + SRC_GPR1_MX7 + core_idx * 8);
+	write32(p->pa_base, p->src_va_base + SRC_GPR2_MX7 + core_idx * 8);
 	
 	/* Program LPCR_A7_BSC */
 	// XXX need spinlock around common register
@@ -106,6 +119,7 @@ static int imx7_do_core_power_down(uint32_t arg)
 	val |= GPC_LPCR_A7_BSC_IRQ_SRC_C1;
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
 	val |= GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER; // XXX not sure
+	DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
 
 	/* Program A7 advanced power control register */
@@ -114,30 +128,31 @@ static int imx7_do_core_power_down(uint32_t arg)
 	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP;  // XXX do not use LPM request
 	val &= ~GPC_LPCR_A7_AD_EN_C1_IRQ_PUP; // XXX
 	val &= ~GPC_LPCR_A7_AD_EN_C0_PUP;  // XXX
-	val &= ~GPC_LPCR_A7_AD_EN_C0_IRQ_PUP; // XXX
+	val |= GPC_LPCR_A7_AD_EN_C0_IRQ_PUP; // XXX Wakeup by IRQ
 	val &= ~GPC_LPCR_A7_AD_EN_PLAT_PDN;  // don't power down SCU and L2
 	val &= ~GPC_LPCR_A7_AD_EN_C1_PDN;  // ignore LPM request
 	val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;  // ignore LPM request
 
 	/* power down current core when core issues wfi */
-	if (get_core_pos() == 0)
+	if (core_idx == 0)
 		val |= GPC_LPCR_A7_AD_EN_C0_WFI_PDN;
 	else
 		val |= GPC_LPCR_A7_AD_EN_C1_WFI_PDN;
 
+	DMSG("GPC_LPCR_A7_AD = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
 
+	gpc_mask_all_irqs(p);
+
+	DMSG("Arming PGC and executing WFI");
+
 	/* arm PGC for power down */
-	if (get_core_pos() == 0)
+	if (core_idx == 0)
 		val = GPC_PGC_C0;
 	else
 		val = GPC_PGC_C1;
 
 	imx_gpcv2_set_core_pgc(true, val);
-
-	// XXX for testing we should probably mask all interrupts at the
-	// GPC and verify that core goes to sleep
-	DMSG("Executing WFI");
 
 	dsb();
 	wfi();

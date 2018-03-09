@@ -359,6 +359,7 @@
 #define SRC_SCR_CPU_ENABLE_ALL		SHIFT_U32(0x7, 22)
 
 #define SRC_GPR1_MX7			0x074
+#define SRC_GPR2_MX7			0x078
 #define SRC_A7RCR0			0x004
 #define SRC_A7RCR1			0x008
 #define SRC_A7RCR0_A7_CORE_RESET0_OFFSET	0
@@ -422,5 +423,8 @@
 #define GPC_LPCR_A7_AD_EN_C1_WFI_PDN             0x4
 #define GPC_LPCR_A7_AD_EN_C0_PDN                 0x2
 #define GPC_LPCR_A7_AD_EN_C0_WFI_PDN             0x1
+
+#define BM_GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK     0x80000000
+#define BM_GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK     0x00008000
 
 #endif
