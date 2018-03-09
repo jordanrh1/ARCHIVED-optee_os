@@ -118,7 +118,7 @@ static int imx7_do_core_power_down(uint32_t arg)
 	val |= GPC_LPCR_A7_BSC_IRQ_SRC_C0;   // Core wakeup via GIC
 	val |= GPC_LPCR_A7_BSC_IRQ_SRC_C1;
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
-	val |= GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER; // XXX not sure
+	val &= ~GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER; // XXX not sure
 	DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
 
