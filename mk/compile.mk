@@ -16,7 +16,8 @@ objs		:=
 # Disable all builtin rules
 .SUFFIXES:
 
-comp-cflags$(sm) = -std=gnu99
+comp-cflags$(sm) = -std=gnu99 -Wno-unused-variable -Wno-unused-function \
+		   -Wno-unused-parameter
 comp-aflags$(sm) =
 comp-cppflags$(sm) =
 
@@ -29,9 +30,9 @@ comp-cflags-warns-high = \
 	-Wall -Wcast-align  \
 	-Werror-implicit-function-declaration -Wextra -Wfloat-equal \
 	-Wformat-nonliteral -Wformat-security -Wformat=2 -Winit-self \
-	-Wmissing-declarations -Wmissing-format-attribute \
+	-Wmissing-format-attribute \
 	-Wmissing-include-dirs -Wmissing-noreturn \
-	-Wmissing-prototypes -Wnested-externs -Wpointer-arith \
+	-Wnested-externs -Wpointer-arith \
 	-Wshadow -Wstrict-prototypes -Wswitch-default \
 	-Wwrite-strings \
 	-Wno-missing-field-initializers -Wno-format-zero-length
