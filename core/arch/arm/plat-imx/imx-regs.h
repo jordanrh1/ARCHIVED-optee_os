@@ -371,6 +371,8 @@
 #define OFFSET_DIGPROG_IMX7D		0x800
 
 /* GPC V2 */
+#define GPC_PGC_C0                      0x800
+#define GPC_PGC_C0_PUPSCR               0x804
 #define GPC_PGC_C1			0x840
 #define GPC_PGC_C1_PUPSCR		0x844
 
@@ -381,4 +383,44 @@
 #define GPC_CPU_PGC_SW_PDN_REQ		0xfc
 #define GPC_PU_PGC_SW_PDN_REQ		0x104
 #define GPC_PGC_SW_PDN_PUP_REQ_CORE1_MASK BIT(1)
+
+#define GPC_LPCR_A7_BSC                 0
+#define GPC_LPCR_A7_AD                  0x4
+#define GPC_LPCR_M4                     0x8
+#define GPC_SLPCR                       0x14
+#define GPC_MLPCR                       0x20
+#define GPC_PGC_ACK_SEL_A7              0x24
+#define GPC_PGC_ACK_SEL_M4              0x28
+#define GPC_MISC                        0x2C
+#define GPC_IMR1_CORE0_A7               0x30
+#define GPC_IMR2_CORE0_A7               0x34
+#define GPC_IMR3_CORE0_A7               0x38
+#define GPC_IMR4_CORE0_A7               0x3C
+#define GPC_IMR1_CORE1_A7               0x40
+#define GPC_IMR2_CORE1_A7               0x44
+#define GPC_IMR3_CORE1_A7               0x48
+#define GPC_IMR4_CORE1_A7               0x4C
+
+#define GPC_LPCR_A7_BSC_LPM0            SHIFT_U32(0x3, 0)
+#define GPC_LPCR_A7_BSC_LPM1            SHIFT_U32(0x3, 2)
+#define GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM  BIT(14)
+#define GPC_LPCR_A7_BSC_MASK_CORE0_WFI  BIT(16)
+#define GPC_LPCR_A7_BSC_MASK_CORE1_WFI  BIT(17)
+#define GPC_LPCR_A7_BSC_MASK_L2CC_WFI   BIT(26)
+#define GPC_LPCR_A7_BSC_IRQ_SRC_C0      BIT(28)
+#define GPC_LPCR_A7_BSC_IRQ_SRC_C1      BIT(29)
+#define GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP  BIT(30)
+#define GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER BIT(31)
+
+#define GPC_LPCR_A7_AD_L2_PGE                     0x10000
+#define GPC_LPCR_A7_AD_EN_C1_PUP                 0x800
+#define GPC_LPCR_A7_AD_EN_C1_IRQ_PUP             0x400
+#define GPC_LPCR_A7_AD_EN_C0_PUP                 0x200
+#define GPC_LPCR_A7_AD_EN_C0_IRQ_PUP             0x100
+#define GPC_LPCR_A7_AD_EN_PLAT_PDN               0x10
+#define GPC_LPCR_A7_AD_EN_C1_PDN                 0x8
+#define GPC_LPCR_A7_AD_EN_C1_WFI_PDN             0x4
+#define GPC_LPCR_A7_AD_EN_C0_PDN                 0x2
+#define GPC_LPCR_A7_AD_EN_C0_WFI_PDN             0x1
+
 #endif

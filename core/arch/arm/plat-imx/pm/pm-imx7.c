@@ -149,6 +149,7 @@ int pm_imx7_iram_tbl_init(void)
 	map.attr = TEE_MATTR_VALID_BLOCK | TEE_MATTR_PRWX | TEE_MATTR_SECURE;
 	map_memarea_sections(&map, (uint32_t *)iram_tbl_virt_addr);
 
+	// XXX [jordanrh] Shouldn't GIC be mapped as IO memory?
 	map.pa = GIC_BASE;
 	map.va = (vaddr_t)phys_to_virt((paddr_t)GIC_BASE, MEM_AREA_IO_SEC);
 	map.region_size = CORE_MMU_PGDIR_SIZE;

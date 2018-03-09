@@ -44,10 +44,110 @@
 #include <sm/psci.h>
 #include <stdint.h>
 
+#define MX7D_GPC_IMR1   0x30
+#define MX7D_GPC_IMR2   0x34
+#define MX7D_GPC_IMR3   0x38
+#define MX7D_GPC_IMR4   0x3c
+
+#define MX7D_GPC_ISR1_A7 0x70
+#define MX7D_GPC_ISR2_A7 0x74
+#define MX7D_GPC_ISR3_A7 0x78
+#define MX7D_GPC_ISR4_A7 0x7C
+
 static int suspended_init;
 
-int imx7_cpu_suspend(uint32_t power_state __unused, uintptr_t entry,
-		     uint32_t context_id, struct sm_nsec_ctx *nsec)
+static void gpc_dump_unmasked_irqs(struct imx7_pm_info *p)
+{
+	vaddr_t gpc_base = p->gpc_va_base;
+	DMSG("~IMR1=0x%x, ~IMR2=0x%x, ~IMR3=0x%x, ~IMR4=0x%x",
+	     ~read32(gpc_base + MX7D_GPC_IMR1),
+	     ~read32(gpc_base + MX7D_GPC_IMR2),
+	     ~read32(gpc_base + MX7D_GPC_IMR3),
+	     ~read32(gpc_base + MX7D_GPC_IMR4));
+
+	DMSG("IRS1=0x%x, ISR2=0x%x, ISR3=0x%x, ISR4=0x%x",
+	      read32(gpc_base + MX7D_GPC_ISR1_A7),
+	      read32(gpc_base + MX7D_GPC_ISR2_A7),
+	      read32(gpc_base + MX7D_GPC_ISR3_A7),
+	      read32(gpc_base + MX7D_GPC_ISR4_A7));
+}
+
+static void gpc_mask_all_irqs(struct imx7_pm_info *p)
+{
+	vaddr_t gpc_base = p->gpc_va_base;
+	DMSG("Masking all IRQs in GPC");
+	write32(~0x0, gpc_base + MX7D_GPC_IMR1);
+	write32(~0x0, gpc_base + MX7D_GPC_IMR2);
+	write32(~0x0, gpc_base + MX7D_GPC_IMR3);
+	write32(~0x0, gpc_base + MX7D_GPC_IMR4);
+}
+
+/* Called by pm_pm_cpu_suspend to do platform-specific suspend */
+static int imx7_do_core_power_down(uint32_t arg)
+{
+	uint32_t val;
+	struct imx7_pm_info *p = (struct imx7_pm_info *)arg;
+
+	// XXX do we need to flush cache? Maybe. Looks like 
+	// sm_pm_cpu_suspend_save flushes L1 cache before calling us.
+	// Looks like core-local state gets saved to stack
+	
+	/* Program LPCR_A7_BSC */
+	// XXX need spinlock around common register
+	// XXX at what point do we need to mask exceptions?
+	val = read32(p->gpc_va_base + GPC_LPCR_A7_BSC);
+	val &= ~GPC_LPCR_A7_BSC_LPM0;	// Set LPM0 to RUN mode
+	val &= ~GPC_LPCR_A7_BSC_LPM1;   // Set LPM1 to RUN mode
+	val |= GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;	// A7 clock ON in wait/stop
+	val &= ~GPC_LPCR_A7_BSC_MASK_CORE0_WFI;
+	val &= ~GPC_LPCR_A7_BSC_MASK_CORE1_WFI;
+	val &= ~GPC_LPCR_A7_BSC_MASK_L2CC_WFI;
+	val |= GPC_LPCR_A7_BSC_IRQ_SRC_C0;   // Core wakeup via GIC
+	val |= GPC_LPCR_A7_BSC_IRQ_SRC_C1;
+	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
+	val |= GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER; // XXX not sure
+	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
+
+	/* Program A7 advanced power control register */
+	val = read32(p->gpc_va_base + GPC_LPCR_A7_AD);
+	val &= ~GPC_LPCR_A7_AD_L2_PGE;	// do not power down L2
+	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP;  // XXX do not use LPM request
+	val &= ~GPC_LPCR_A7_AD_EN_C1_IRQ_PUP; // XXX
+	val &= ~GPC_LPCR_A7_AD_EN_C0_PUP;  // XXX
+	val &= ~GPC_LPCR_A7_AD_EN_C0_IRQ_PUP; // XXX
+	val &= ~GPC_LPCR_A7_AD_EN_PLAT_PDN;  // don't power down SCU and L2
+	val &= ~GPC_LPCR_A7_AD_EN_C1_PDN;  // ignore LPM request
+	val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;  // ignore LPM request
+
+	/* power down current core when core issues wfi */
+	if (get_core_pos() == 0)
+		val |= GPC_LPCR_A7_AD_EN_C0_WFI_PDN;
+	else
+		val |= GPC_LPCR_A7_AD_EN_C1_WFI_PDN;
+
+	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
+
+	/* arm PGC for power down */
+	if (get_core_pos() == 0)
+		val = GPC_PGC_C0;
+	else
+		val = GPC_PGC_C1;
+
+	imx_gpcv2_set_core_pgc(true, val);
+
+	// XXX for testing we should probably mask all interrupts at the
+	// GPC and verify that core goes to sleep
+	DMSG("Executing WFI");
+
+	dsb();
+	wfi();
+
+	/* return value ignored by sm_pm_cpu_suspend */
+	return 0;
+}
+
+int imx7_core_power_down(uintptr_t entry,
+		        uint32_t context_id, struct sm_nsec_ctx *nsec)
 {
 	uint32_t suspend_ocram_base = core_mmu_get_va(TRUSTZONE_OCRAM_START +
 						      SUSPEND_OCRAM_OFFSET,
@@ -55,16 +155,68 @@ int imx7_cpu_suspend(uint32_t power_state __unused, uintptr_t entry,
 	struct imx7_pm_info *p = (struct imx7_pm_info *)suspend_ocram_base;
 	int ret;
 
+	/* save banked registers for every mode except monitor mode */
+	sm_save_modes_regs(&nsec->mode_regs);
+	
+	ret = sm_pm_cpu_suspend((uint32_t)p, imx7_do_core_power_down);
+
+	/*
+	 * Sometimes sm_pm_cpu_suspend may not really suspended,
+	 * we need to check it's return value to restore reg or not
+	 */
+	if (ret < 0) {
+		DMSG("=== Core did not power down ===\n");
+		return 0;
+	}
+
+	DMSG("Resume from suspend");
+
+	// XXX Need to disarm PGC, clear bits in A7_AD so that next
+	// WFI does not power down the core
+
+	/* Restore register of different mode in secure world */
+	sm_restore_modes_regs(&nsec->mode_regs);
+
+	/* Set entry for back to normal world */
+	nsec->mon_lr = (uint32_t)entry;
+	nsec->r0 = context_id;
+
+	return PSCI_RET_SUCCESS;
+}
+
+int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
+		     uint32_t context_id, struct sm_nsec_ctx *nsec)
+{
+#if 0
+	uint32_t suspend_ocram_base = core_mmu_get_va(TRUSTZONE_OCRAM_START +
+						      SUSPEND_OCRAM_OFFSET,
+						      MEM_AREA_TEE_COHERENT);
+	struct imx7_pm_info *p = (struct imx7_pm_info *)suspend_ocram_base;
+	int ret;
+#endif
+
 	if (!suspended_init) {
 		imx7_suspend_init();
 		suspended_init = 1;
 	}
 
+	switch (power_state) {
+	case MX7_STATE_CORE_POWER_DOWN:
+		return imx7_core_power_down(entry, context_id, nsec);
+	default:
+		return PSCI_RET_INVALID_PARAMETERS;
+	}
+
+#if 0
 	/* Store non-sec ctx regs */
 	sm_save_modes_regs(&nsec->mode_regs);
 
-	DMSG("Calling sm_pm_cpu_suspend. p=0x%x, suspend_ocram_base=0x%x",
-	     (uint32_t)p, (uint32_t)suspend_ocram_base);
+	// XXX dump the gpc state
+	gpc_dump_unmasked_irqs(p);
+	gpc_mask_all_irqs(p);
+
+	DMSG("Calling sm_pm_cpu_suspend. suspend_ocram_base=0x%x",
+	     (uint32_t)suspend_ocram_base);
 
 	ret = sm_pm_cpu_suspend((uint32_t)p, (int (*)(uint32_t))
 				(suspend_ocram_base + sizeof(*p)));
@@ -91,4 +243,5 @@ int imx7_cpu_suspend(uint32_t power_state __unused, uintptr_t entry,
 	DMSG("=== Back from Suspended ===\n");
 
 	return 0;
+#endif
 }

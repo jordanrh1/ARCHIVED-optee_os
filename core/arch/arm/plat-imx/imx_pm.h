@@ -75,6 +75,8 @@
 #define SUSPEND_OCRAM_OFFSET		0x0
 #define LOWPOWER_IDLE_OCRAM_OFFSET	0x1000
 
+#define MX7_STATE_CORE_POWER_DOWN       0x40000002
+
 #ifndef ASM
 #include <sm/sm.h>
 

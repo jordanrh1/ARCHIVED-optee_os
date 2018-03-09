@@ -213,7 +213,7 @@ int psci_cpu_suspend(uint32_t power_state,
 	DMSG("power_state = 0x%x", power_state);
 	switch (power_state) {
 	case 0x41000022:	// XXX put core and cluster into suspend
-	case 0x40000002:	// XXX put just this core into suspend
+	case MX7_STATE_CORE_POWER_DOWN:
 		return imx7_cpu_suspend(power_state, entry,
 					context_id, nsec);
 	
