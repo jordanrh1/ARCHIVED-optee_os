@@ -256,6 +256,10 @@
 #define DDRC_BASE		0x307A0000
 #define IRAM_BASE		0x00900000
 #define IRAM_S_BASE		0x00180000
+#define GPT1_BASE               0x302D0000
+#define GPT2_BASE               0x302E0000
+#define GPT3_BASE               0x302F0000
+#define GPT4_BASE               0x30300000
 
 /*
  * Grant R+W access:
@@ -426,5 +430,39 @@
 
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK     0x80000000
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK     0x00008000
+
+/* GPT register definitions */
+#define GPT_CR                                   0x0
+#define GPT_PR                                   0x4
+#define GPT_SR                                   0x8
+#define GPT_IR                                   0xc
+#define GPT_OCR1                                 0x10
+#define GPT_OCR2                                 0x14
+#define GPT_OCR3                                 0x18
+#define GPT_ICR1                                 0x1c
+#define GPT_ICR2                                 0x20
+#define GPT_CNT                                  0x24
+
+#define GPT_CR_EN                                BIT(0)
+#define GPT_CR_ENMOD                             BIT(1)
+#define GPT_CR_DBGEN                             BIT(2)
+#define GPT_CR_WAITEN                            BIT(3)
+#define GPT_CR_DOZEEN                            BIT(4)
+#define GPT_CR_STOPEN                            BIT(5)
+#define GPT_CR_CLKSRC_24M                        SHIFT_U32(0x5, 6)
+#define GPT_CR_FRR                               BIT(9)
+#define GPT_CR_EN_24M                            BIT(10)
+#define GPT_CR_SWR                               BIT(15)
+
+#define GPT_IR_OF1IE                             BIT(0)
+
+/* GPIO definitions */
+#define IMX_GPIO_NR(port, index)                 ((((port)-1)*32)+((index)&31))
+#define GPIO_BANK_OFFSET(gpio)                   ((gpio)/32 * 0x10000)
+#define GPIO_DR                                  0x0
+#define GPIO_GDIR                                0x4
+#define GPIO_PSR                                 0x8
+
+
 
 #endif

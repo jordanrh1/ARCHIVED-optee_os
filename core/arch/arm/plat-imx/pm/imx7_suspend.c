@@ -37,6 +37,7 @@
 #include <kernel/cache_helpers.h>
 #include <kernel/generic_boot.h>
 #include <kernel/misc.h>
+#include <kernel/interrupt.h>
 #include <mm/core_mmu.h>
 #include <mm/core_memprot.h>
 #include <sm/sm.h>
@@ -55,6 +56,144 @@
 #define MX7D_GPC_ISR4_A7 0x7C
 
 static int suspended_init;
+
+#define GPT_FREQ 1000000
+#define GPT_PRESCALER24M (12 - 1)
+#define GPT_PRESCALER (2 - 1)
+
+#define GREEN_LED IMX_GPIO_NR(6, 14)
+
+static struct itr_handler gpt1_itr;
+
+static vaddr_t gpio_base;
+static void gpio_toggle_direction(uint32_t gpio)
+{
+	uint32_t val;
+
+	if (!gpio_base)
+		gpio_base = core_mmu_get_va(GPIO_BASE, MEM_AREA_IO_SEC);
+
+	DMSG("gpio_base = 0x%x");
+	val = read32(gpio_base + GPIO_BANK_OFFSET(gpio) + GPIO_GDIR);
+	val ^= (1 << (gpio % 32));
+	write32(val, gpio_base + GPIO_BANK_OFFSET(gpio) + GPIO_GDIR);
+}
+
+static void toggle_led(void)
+{
+	gpio_toggle_direction(GREEN_LED);
+}
+
+static volatile int gpt_itr_fired;
+static vaddr_t gpt_base;
+static enum itr_return gpt_itr_cb(struct itr_handler *h)
+{
+	gpt_itr_fired = 1;
+
+//	toggle_led();
+
+	/* Disable and acknowledge interrupts */
+	write32(0, gpt_base + GPT_IR);
+	write32(0x3f, gpt_base + GPT_SR);
+
+	return ITRR_HANDLED;
+}
+
+static void gpt_init(void)
+{
+	uint32_t val;
+
+	gpt_base = core_mmu_get_va(GPT1_BASE, MEM_AREA_IO_SEC);
+
+	/* Disable GPT */
+	write32(0, gpt_base + GPT_CR);
+
+	/* Software reset */
+	write32(GPT_CR_SWR, gpt_base + GPT_CR);
+
+	/* Wait for reset bit to clear */
+	while ((read32(gpt_base + GPT_CR) & GPT_CR_SWR) != 0);
+
+	/* Set prescaler to target frequency */
+	val = ((GPT_PRESCALER24M & 0xf) << 12) | (GPT_PRESCALER & 0xfff);
+	write32(val, gpt_base + GPT_PR);
+
+	/* Select clock source */
+	write32(GPT_CR_CLKSRC_24M, gpt_base + GPT_CR);
+
+	/* Register interrupt handler */
+	gpt1_itr.it = 55;
+	gpt1_itr.flags = ITRF_TRIGGER_LEVEL;
+	gpt1_itr.handler = gpt_itr_cb;
+	itr_add(&gpt1_itr);
+	itr_enable(gpt1_itr.it);
+
+	val = read32(gpt_base + GPT_CR);
+	val |= GPT_CR_EN;
+	val |= GPT_CR_ENMOD;
+	val |= GPT_CR_STOPEN;
+	val |= GPT_CR_WAITEN;
+	val |= GPT_CR_DOZEEN;
+	val |= GPT_CR_DBGEN;
+	val |= GPT_CR_FRR;
+	val |= GPT_CR_EN_24M;
+	write32(val, gpt_base + GPT_CR);
+
+	DMSG("Initialized GPT");
+}
+
+static void gpt_delay(uint32_t ms)
+{
+	uint32_t initial;
+	uint32_t done;
+
+	initial = read32(gpt_base + GPT_CNT);
+	done = initial + GPT_FREQ / 1000 * ms;
+	if (done < initial) {	// overflow
+		while (read32(gpt_base + GPT_CNT) >= initial);
+	}
+	while (read32(gpt_base + GPT_CNT) < done);
+}
+
+static void gpt_schedule_interrupt(uint32_t ms)
+{
+	uint32_t val;
+	bool once = false;
+
+	/* Disable timer */
+	val = read32(gpt_base + GPT_CR);
+	val &= ~GPT_CR_EN;
+	write32(val, gpt_base + GPT_CR);
+
+	/* Disable and acknowledge interrupts */
+	write32(0, gpt_base + GPT_IR);
+	write32(0x3f, gpt_base + GPT_SR);
+
+	/* Set compare1 register */
+	write32(GPT_FREQ / 1000 * ms, gpt_base + GPT_OCR1);
+
+	/* Enable compare interrupt */
+	write32(GPT_IR_OF1IE, gpt_base + GPT_IR);
+
+	DMSG("Scheduling an interrupt %dms from now", ms);
+	gpt_itr_fired = 0;
+
+	/* Enable timer */
+	val |= GPT_CR_EN;
+	val |= GPT_CR_ENMOD;
+	write32(val, gpt_base + GPT_CR);
+
+	while (!gpt_itr_fired) {
+		if (!once &&
+                    (read32(gpt_base + GPT_CNT) > (GPT_FREQ / 1000 * ms))) {
+
+			DMSG("Timer value reached target");
+			once = true;
+		}
+	}
+
+	DMSG("GPT interrupt fired!");
+}
 
 static void gpc_dump_unmasked_irqs(struct imx7_pm_info *p)
 {
@@ -145,6 +284,7 @@ static int imx7_do_core_power_down(uint32_t arg)
 	gpc_mask_all_irqs(p);
 
 	DMSG("Arming PGC and executing WFI");
+	gpt_schedule_interrupt(5000);
 
 	/* arm PGC for power down */
 	if (core_idx == 0)
@@ -199,6 +339,27 @@ int imx7_core_power_down(uintptr_t entry,
 	return PSCI_RET_SUCCESS;
 }
 
+static int imx7_core_do_wfi(void)
+{
+	for (;;) {
+		DMSG("tick");
+		toggle_led();
+		gpt_delay(500);
+		DMSG("tock");
+		toggle_led();
+		gpt_delay(500);
+	}
+
+	gpt_schedule_interrupt(1000);
+
+	dsb();
+	wfi();
+
+	DMSG("Woke up from WFI");
+
+	return PSCI_RET_SUCCESS;
+}
+
 int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		     uint32_t context_id, struct sm_nsec_ctx *nsec)
 {
@@ -211,11 +372,15 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 #endif
 
 	if (!suspended_init) {
+		toggle_led();
+		gpt_init();
 		imx7_suspend_init();
 		suspended_init = 1;
 	}
 
 	switch (power_state) {
+	case MX7_STATE_CORE_WFI:
+		return imx7_core_do_wfi();
 	case MX7_STATE_CORE_POWER_DOWN:
 		return imx7_core_power_down(entry, context_id, nsec);
 	default:

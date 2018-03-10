@@ -76,6 +76,7 @@
 #define LOWPOWER_IDLE_OCRAM_OFFSET	0x1000
 
 #define MX7_STATE_CORE_POWER_DOWN       0x40000002
+#define MX7_STATE_CORE_WFI              0x00000001
 
 #ifndef ASM
 #include <sm/sm.h>
