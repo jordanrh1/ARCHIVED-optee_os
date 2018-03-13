@@ -39,6 +39,67 @@
 
 .section .text
 
+        .macro debug_loop
+        movw    r1, #0x0000     // load UART2 base
+        movt    r1, #0x3089
+
+        mov     r2, #0x41               // 'A'
+write_a:
+        str     r2, [r1, #0x40]         // Txd
+        b       write_a
+        .endm
+
+FUNC print_hex, :
+UNWIND(	.fnstart)
+UNWIND(	.cantunwind)
+	
+	read_sctlr	r1		// Is MMU on?
+	tst	r1, #SCTLR_M
+
+	movweq	r3, #0x0000     	// load UART2 PA base
+        movteq	r3, #0x3089
+
+	movwne	r3, #0x0000		// load UART VA base
+	movtne	r3, #0x85b9
+	
+	mov	r1, #48			// print '0'
+	str	r1, [r3, #0x40]
+	mov 	r1, #120		// print 'x'
+	str	r1, [r3, #0x40]
+
+	rev	r0, r0			// byte-reverse the word
+print_byte:
+	lsr	r1, r0, #4		// Get 2nd nibble (bits 4-7)
+	and	r1, r1, #0xf
+
+	cmp	r1, #10			// Less than 10?
+	addlt	r1, r1, #48		// Add '0'
+	addge	r1, r1, #55		// Add 'A' - 10
+	str	r1, [r3, #0x40]		// Write to UART TXd
+
+	and	r1, r0, #0xf		// Get first nibble (bits 0 - 3)
+	cmp	r1, #10			// Less than 10?
+	addlt	r1, r1, #48		// Add '0'
+	addge	r1, r1, #55		// Add 'A' - 10
+	str	r1, [r3, #0x40]		// Write to UART TXd
+
+	lsrs	r0, r0, #8		// right shift by 8
+	bne	print_byte		// until 0
+	
+	mov	r1, #13			// print CR
+	str	r1, [r3, #0x40]
+	mov	r1, #10			// print LF
+	str	r1, [r3, #0x40]
+
+wait_fifo_empty:
+	ldr	r1, [r3, #0xB4]		// Load UART Test register
+	tst	r1, #(1 << 6)
+	beq	wait_fifo_empty
+
+	bx lr
+UNWIND(	.fnend)
+END_FUNC print_hex
+
 /*
  * int sm_pm_cpu_suspend(uint32_t arg, int (*fn)(uint32_t))
  * @arg will be passed to fn as argument
@@ -49,6 +110,7 @@ FUNC sm_pm_cpu_suspend, :
 UNWIND(	.fnstart)
 UNWIND(	.cantunwind)
 	push	{r4 - r12, lr}
+
 	mov	r5, sp
 	sub	sp, sp, #SM_PM_CTX_SIZE
 	push	{r0, r1}
@@ -142,6 +204,7 @@ UNWIND(	.cantunwind)
 	mla	r0, r0, r1, r4
 
 	ldr	r0, [r0, #THREAD_CORE_LOCAL_SM_PM_CTX_PHYS]
+
 	/* Need to use r0!, because sm_pm_cpu_do_resume needs it */
 	ldmia	r0!, {sp, pc}
 UNWIND(	.fnend)

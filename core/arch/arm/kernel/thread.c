@@ -419,6 +419,10 @@ void thread_init_boot_thread(void)
 
 	l->curr_thread = 0;
 	threads[0].state = THREAD_STATE_ACTIVE;
+
+	DMSG("thread_core_local virt=0x%x, phys=0x%x",
+		(uint32_t)thread_core_local,
+		(uint32_t)virt_to_phys(&thread_core_local));
 }
 
 void thread_clr_boot_thread(void)

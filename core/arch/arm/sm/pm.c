@@ -57,6 +57,9 @@ void sm_pm_cpu_suspend_save(struct sm_pm_ctx *ctx, uint32_t sp)
 	struct thread_core_local *p = thread_get_core_local();
 
 	p->sm_pm_ctx_phys = virt_to_phys((void *)ctx);
+	DMSG("sm_pm_ctx_phys virt=0x%x, phys=0x%x",
+		(uint32_t)ctx,
+		(uint32_t)p->sm_pm_ctx_phys);
 
 	/* The content will be passed to sm_pm_cpu_do_resume as register sp */
 	ctx->sp = sp;
@@ -65,7 +68,7 @@ void sm_pm_cpu_suspend_save(struct sm_pm_ctx *ctx, uint32_t sp)
 
 	sm_pm_cpu_do_suspend(ctx->suspend_regs);
 
-	dcache_op_level1(DCACHE_OP_CLEAN_INV);
+	cache_op_inner(DCACHE_CLEAN_INV, NULL, 0);
 
 	DMSG("Success");
 	

@@ -30,6 +30,7 @@
 #include <arm32.h>
 #include <console.h>
 #include <drivers/imx_uart.h>
+#include <drivers/gic.h>
 #include <io.h>
 #include <imx.h>
 #include <imx_pm.h>
@@ -55,11 +56,13 @@
 #define MX7D_GPC_ISR3_A7 0x78
 #define MX7D_GPC_ISR4_A7 0x7C
 
+extern uint32_t resume;
 static int suspended_init;
 
 #define GPT_FREQ 1000000
 #define GPT_PRESCALER24M (12 - 1)
 #define GPT_PRESCALER (2 - 1)
+#define GPT1_IRQ (55 + 32)
 
 #define GREEN_LED IMX_GPIO_NR(6, 14)
 
@@ -73,7 +76,6 @@ static void gpio_toggle_direction(uint32_t gpio)
 	if (!gpio_base)
 		gpio_base = core_mmu_get_va(GPIO_BASE, MEM_AREA_IO_SEC);
 
-	DMSG("gpio_base = 0x%x");
 	val = read32(gpio_base + GPIO_BANK_OFFSET(gpio) + GPIO_GDIR);
 	val ^= (1 << (gpio % 32));
 	write32(val, gpio_base + GPIO_BANK_OFFSET(gpio) + GPIO_GDIR);
@@ -84,17 +86,19 @@ static void toggle_led(void)
 	gpio_toggle_direction(GREEN_LED);
 }
 
-static volatile int gpt_itr_fired;
 static vaddr_t gpt_base;
 static enum itr_return gpt_itr_cb(struct itr_handler *h)
 {
-	gpt_itr_fired = 1;
+	vaddr_t base;
 
+	base = (vaddr_t)phys_to_virt_io(GPT1_BASE);
+
+	DMSG("interrupt fired!");
 //	toggle_led();
 
 	/* Disable and acknowledge interrupts */
-	write32(0, gpt_base + GPT_IR);
-	write32(0x3f, gpt_base + GPT_SR);
+	write32(0, base + GPT_IR);
+	write32(0x3f, base + GPT_SR);
 
 	return ITRR_HANDLED;
 }
@@ -122,11 +126,12 @@ static void gpt_init(void)
 	write32(GPT_CR_CLKSRC_24M, gpt_base + GPT_CR);
 
 	/* Register interrupt handler */
-	gpt1_itr.it = 55;
+	gpt1_itr.it = GPT1_IRQ;
 	gpt1_itr.flags = ITRF_TRIGGER_LEVEL;
 	gpt1_itr.handler = gpt_itr_cb;
 	itr_add(&gpt1_itr);
 	itr_enable(gpt1_itr.it);
+	itr_set_affinity(gpt1_itr.it, 0x1);
 
 	val = read32(gpt_base + GPT_CR);
 	val |= GPT_CR_EN;
@@ -158,7 +163,6 @@ static void gpt_delay(uint32_t ms)
 static void gpt_schedule_interrupt(uint32_t ms)
 {
 	uint32_t val;
-	bool once = false;
 
 	/* Disable timer */
 	val = read32(gpt_base + GPT_CR);
@@ -176,23 +180,11 @@ static void gpt_schedule_interrupt(uint32_t ms)
 	write32(GPT_IR_OF1IE, gpt_base + GPT_IR);
 
 	DMSG("Scheduling an interrupt %dms from now", ms);
-	gpt_itr_fired = 0;
 
 	/* Enable timer */
 	val |= GPT_CR_EN;
 	val |= GPT_CR_ENMOD;
 	write32(val, gpt_base + GPT_CR);
-
-	while (!gpt_itr_fired) {
-		if (!once &&
-                    (read32(gpt_base + GPT_CNT) > (GPT_FREQ / 1000 * ms))) {
-
-			DMSG("Timer value reached target");
-			once = true;
-		}
-	}
-
-	DMSG("GPT interrupt fired!");
 }
 
 static void gpc_dump_unmasked_irqs(struct imx7_pm_info *p)
@@ -221,6 +213,15 @@ static void gpc_mask_all_irqs(struct imx7_pm_info *p)
 	write32(~0x0, gpc_base + MX7D_GPC_IMR4);
 }
 
+static void gpc_unmask_irq(struct imx7_pm_info *p, uint32_t irq)
+{
+	vaddr_t gpc_base = p->gpc_va_base;
+	uint32_t val;
+	val = read32(gpc_base + MX7D_GPC_IMR1 + ((irq - 32) / 32) * 4);
+	val &= ~(1 << (irq % 32));
+	write32(val, gpc_base + MX7D_GPC_IMR1 + ((irq - 32) / 32) * 4);
+}
+
 /* Called by pm_pm_cpu_suspend to do platform-specific suspend */
 static int imx7_do_core_power_down(uint32_t arg)
 {
@@ -239,8 +240,10 @@ static int imx7_do_core_power_down(uint32_t arg)
                 GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK,
                 p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
 
-	/* setup resume address and parameter */
-	val = TRUSTZONE_OCRAM_START + SUSPEND_OCRAM_OFFSET + sizeof(*p);
+	/* setup resume address in OCRAM and parameter */
+	val = ((uint32_t)&resume - (uint32_t)&imx7_suspend) + 
+		p->pa_base + p->pm_info_size;
+
 	write32(val, p->src_va_base + SRC_GPR1_MX7 + core_idx * 8);
 	write32(p->pa_base, p->src_va_base + SRC_GPR2_MX7 + core_idx * 8);
 	
@@ -281,10 +284,10 @@ static int imx7_do_core_power_down(uint32_t arg)
 	DMSG("GPC_LPCR_A7_AD = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
 
-	gpc_mask_all_irqs(p);
+	gpc_unmask_irq(p, GPT1_IRQ);
 
 	DMSG("Arming PGC and executing WFI");
-	gpt_schedule_interrupt(5000);
+	gpt_schedule_interrupt(2000);
 
 	/* arm PGC for power down */
 	if (core_idx == 0)
@@ -341,16 +344,7 @@ int imx7_core_power_down(uintptr_t entry,
 
 static int imx7_core_do_wfi(void)
 {
-	for (;;) {
-		DMSG("tick");
-		toggle_led();
-		gpt_delay(500);
-		DMSG("tock");
-		toggle_led();
-		gpt_delay(500);
-	}
-
-	gpt_schedule_interrupt(1000);
+	gpt_schedule_interrupt(5000);
 
 	dsb();
 	wfi();
@@ -372,7 +366,6 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 #endif
 
 	if (!suspended_init) {
-		toggle_led();
 		gpt_init();
 		imx7_suspend_init();
 		suspended_init = 1;
