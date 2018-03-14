@@ -261,7 +261,7 @@ static int imx7_do_core_power_down(uint32_t arg)
 	val |= GPC_LPCR_A7_BSC_IRQ_SRC_C1;
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
 	val &= ~GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER; // XXX not sure
-	DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
+	//DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
 
 	/* Program A7 advanced power control register */
@@ -281,13 +281,14 @@ static int imx7_do_core_power_down(uint32_t arg)
 	else
 		val |= GPC_LPCR_A7_AD_EN_C1_WFI_PDN;
 
-	DMSG("GPC_LPCR_A7_AD = 0x%x", val);
+	//DMSG("GPC_LPCR_A7_AD = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
 
-	gpc_unmask_irq(p, GPT1_IRQ);
+	// Test whether GPC is really being used to wake up core
+	// gpc_unmask_irq(p, GPT1_IRQ);
 
 	DMSG("Arming PGC and executing WFI");
-	gpt_schedule_interrupt(2000);
+	//gpt_schedule_interrupt(2000);
 
 	/* arm PGC for power down */
 	if (core_idx == 0)
@@ -307,6 +308,8 @@ static int imx7_do_core_power_down(uint32_t arg)
 int imx7_core_power_down(uintptr_t entry,
 		        uint32_t context_id, struct sm_nsec_ctx *nsec)
 {
+	uint32_t val;
+	uint32_t core_idx;
 	uint32_t suspend_ocram_base = core_mmu_get_va(TRUSTZONE_OCRAM_START +
 						      SUSPEND_OCRAM_OFFSET,
 						      MEM_AREA_TEE_COHERENT);
@@ -318,28 +321,50 @@ int imx7_core_power_down(uintptr_t entry,
 	
 	ret = sm_pm_cpu_suspend((uint32_t)p, imx7_do_core_power_down);
 
+	core_idx = get_core_pos();
+
+	/*
+	 * Whether we did or did not suspend, we need to unarm hardware
+	 *  - reset BSC and AD registers
+	 *  - unarm PGC
+	 */
+	if (core_idx == 0)
+		val = GPC_PGC_C0;
+	else
+		val = GPC_PGC_C1;
+
+	imx_gpcv2_set_core_pgc(false, val);
+
+	/* Disable powerdown on WFI */
+	val = read32(p->gpc_va_base + GPC_LPCR_A7_AD);
+	if (core_idx == 0)
+		val &= ~GPC_LPCR_A7_AD_EN_C0_WFI_PDN;
+	else
+		val &= ~GPC_LPCR_A7_AD_EN_C1_WFI_PDN;
+
+	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
+
 	/*
 	 * Sometimes sm_pm_cpu_suspend may not really suspended,
 	 * we need to check it's return value to restore reg or not
 	 */
 	if (ret < 0) {
-		DMSG("=== Core did not power down ===\n");
+		DMSG("=== Core did not power down ===");
 		return 0;
 	}
 
 	DMSG("Resume from suspend");
 
-	// XXX Need to disarm PGC, clear bits in A7_AD so that next
-	// WFI does not power down the core
-
 	/* Restore register of different mode in secure world */
 	sm_restore_modes_regs(&nsec->mode_regs);
 
 	/* Set entry for back to normal world */
-	nsec->mon_lr = (uint32_t)entry;
-	nsec->r0 = context_id;
+	DMSG("Setting entry=0x%x, context_id=0x%x",
+	     (uint32_t)entry, context_id);
 
-	return PSCI_RET_SUCCESS;
+	nsec->mon_lr = (uint32_t)entry;
+
+	return context_id;
 }
 
 static int imx7_core_do_wfi(void)
@@ -375,6 +400,7 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 	case MX7_STATE_CORE_WFI:
 		return imx7_core_do_wfi();
 	case MX7_STATE_CORE_POWER_DOWN:
+	case 0x41000022:
 		return imx7_core_power_down(entry, context_id, nsec);
 	default:
 		return PSCI_RET_INVALID_PARAMETERS;
