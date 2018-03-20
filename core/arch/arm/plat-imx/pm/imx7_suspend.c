@@ -55,18 +55,35 @@
 #define MX7D_GPC_ISR2_A7 0x74
 #define MX7D_GPC_ISR3_A7 0x78
 #define MX7D_GPC_ISR4_A7 0x7C
+#define GPT_FREQ 1000000
+#define GPT_PRESCALER24M (12 - 1)
+#define GPT_PRESCALER (2 - 1)
+
+#define GIT_IRQ 27
+#define GPT1_IRQ (55 + 32)
+#define GPT4_IRQ (52 + 32)
+#define USDHC1_IRQ (22 + 32)
+
+#define GREEN_LED IMX_GPIO_NR(6, 14)
+
+struct git_timer_state {
+	uint32_t cntfrq;
+};
 
 extern uint32_t resume;
 static int suspended_init;
 
-#define GPT_FREQ 1000000
-#define GPT_PRESCALER24M (12 - 1)
-#define GPT_PRESCALER (2 - 1)
-#define GPT1_IRQ (55 + 32)
-
-#define GREEN_LED IMX_GPIO_NR(6, 14)
-
 static struct itr_handler gpt1_itr;
+
+static void git_timer_save_state(struct git_timer_state *state)
+{
+	state->cntfrq = read_cntfrq();
+}
+
+static void git_timer_restore_state(struct git_timer_state *state)
+{
+	write_cntfrq(state->cntfrq);
+}
 
 static vaddr_t gpio_base;
 static void gpio_toggle_direction(uint32_t gpio)
@@ -130,8 +147,8 @@ static void gpt_init(void)
 	gpt1_itr.flags = ITRF_TRIGGER_LEVEL;
 	gpt1_itr.handler = gpt_itr_cb;
 	itr_add(&gpt1_itr);
-	itr_enable(gpt1_itr.it);
-	itr_set_affinity(gpt1_itr.it, 0x1);
+	//itr_enable(gpt1_itr.it);	// Rely on GPT to wake back up
+	//itr_set_affinity(gpt1_itr.it, 0x1);
 
 	val = read32(gpt_base + GPT_CR);
 	val |= GPT_CR_EN;
@@ -187,7 +204,7 @@ static void gpt_schedule_interrupt(uint32_t ms)
 	write32(val, gpt_base + GPT_CR);
 }
 
-static void gpc_dump_unmasked_irqs(struct imx7_pm_info *p)
+void gpc_dump_unmasked_irqs(struct imx7_pm_info *p)
 {
 	vaddr_t gpc_base = p->gpc_va_base;
 	DMSG("~IMR1=0x%x, ~IMR2=0x%x, ~IMR3=0x%x, ~IMR4=0x%x",
@@ -203,7 +220,7 @@ static void gpc_dump_unmasked_irqs(struct imx7_pm_info *p)
 	      read32(gpc_base + MX7D_GPC_ISR4_A7));
 }
 
-static void gpc_mask_all_irqs(struct imx7_pm_info *p)
+void gpc_mask_all_irqs(struct imx7_pm_info *p)
 {
 	vaddr_t gpc_base = p->gpc_va_base;
 	DMSG("Masking all IRQs in GPC");
@@ -213,7 +230,7 @@ static void gpc_mask_all_irqs(struct imx7_pm_info *p)
 	write32(~0x0, gpc_base + MX7D_GPC_IMR4);
 }
 
-static void gpc_unmask_irq(struct imx7_pm_info *p, uint32_t irq)
+void gpc_unmask_irq(struct imx7_pm_info *p, uint32_t irq)
 {
 	vaddr_t gpc_base = p->gpc_va_base;
 	uint32_t val;
@@ -222,12 +239,42 @@ static void gpc_unmask_irq(struct imx7_pm_info *p, uint32_t irq)
 	write32(val, gpc_base + MX7D_GPC_IMR1 + ((irq - 32) / 32) * 4);
 }
 
+static void dump_phys_mem(uint32_t paddr)
+{
+	int i;
+	vaddr_t vbase;
+	enum teecore_memtypes mtype = MEM_AREA_RAM_NSEC;
+
+	vbase = (vaddr_t)phys_to_virt(paddr, mtype);
+
+	if (!vbase) {
+		if (!core_mmu_add_mapping(mtype, paddr, CORE_MMU_DEVICE_SIZE)){
+			EMSG("Failed to map 0x%x bytes at PA 0x%x",
+			      CORE_MMU_DEVICE_SIZE,
+			      paddr);
+			return;
+		}
+		vbase = (vaddr_t)phys_to_virt(paddr, mtype);
+	}
+
+	DMSG("Dumping memory at paddr(0x%08x) vbase(0x%08x)", 
+	     (uint32_t)paddr, (uint32_t)vbase);
+
+	for (i = 0; i < 16; ++i) {
+		DMSG("0x%08x: 0x%08x",
+                     paddr + (i * 4),
+		     *(uint32_t *)(vbase + (i * 4)));
+	}
+}
+
 /* Called by pm_pm_cpu_suspend to do platform-specific suspend */
 static int imx7_do_core_power_down(uint32_t arg)
 {
 	uint32_t val;
 	int core_idx;
 	struct imx7_pm_info *p = (struct imx7_pm_info *)arg;
+	bool schedule_wakeup = true;
+	bool wakeup_gic = false;
 
 	core_idx = get_core_pos();
 
@@ -257,9 +304,19 @@ static int imx7_do_core_power_down(uint32_t arg)
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE0_WFI;
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE1_WFI;
 	val &= ~GPC_LPCR_A7_BSC_MASK_L2CC_WFI;
-	val |= GPC_LPCR_A7_BSC_IRQ_SRC_C0;   // Core wakeup via GIC
-	val |= GPC_LPCR_A7_BSC_IRQ_SRC_C1;
-	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
+
+	if (wakeup_gic) {
+		val |= GPC_LPCR_A7_BSC_IRQ_SRC_C0;   // Core wakeup via GIC
+		val |= GPC_LPCR_A7_BSC_IRQ_SRC_C1;
+		val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
+	} else {
+		// wakeup via IRQ
+		// XXX need to program GPC
+		val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C0;
+		val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C1;
+		val |= GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
+	}
+
 	val &= ~GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER; // XXX not sure
 	//DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
@@ -267,28 +324,36 @@ static int imx7_do_core_power_down(uint32_t arg)
 	/* Program A7 advanced power control register */
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_AD);
 	val &= ~GPC_LPCR_A7_AD_L2_PGE;	// do not power down L2
-	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP;  // XXX do not use LPM request
-	val &= ~GPC_LPCR_A7_AD_EN_C1_IRQ_PUP; // XXX
-	val &= ~GPC_LPCR_A7_AD_EN_C0_PUP;  // XXX
-	val |= GPC_LPCR_A7_AD_EN_C0_IRQ_PUP; // XXX Wakeup by IRQ
 	val &= ~GPC_LPCR_A7_AD_EN_PLAT_PDN;  // don't power down SCU and L2
-	val &= ~GPC_LPCR_A7_AD_EN_C1_PDN;  // ignore LPM request
-	val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;  // ignore LPM request
 
 	/* power down current core when core issues wfi */
-	if (core_idx == 0)
+	if (core_idx == 0) {
+		val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;  // ignore LPM request
+		val &= ~GPC_LPCR_A7_AD_EN_C0_PUP;
 		val |= GPC_LPCR_A7_AD_EN_C0_WFI_PDN;
-	else
+		val |= GPC_LPCR_A7_AD_EN_C0_IRQ_PUP;
+	} else {
+		val &= ~GPC_LPCR_A7_AD_EN_C1_PDN;  // ignore LPM request
+		val &= ~GPC_LPCR_A7_AD_EN_C1_PUP;
 		val |= GPC_LPCR_A7_AD_EN_C1_WFI_PDN;
+		val |= GPC_LPCR_A7_AD_EN_C1_IRQ_PUP;
+	}
 
 	//DMSG("GPC_LPCR_A7_AD = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
 
-	// Test whether GPC is really being used to wake up core
-	// gpc_unmask_irq(p, GPT1_IRQ);
-
 	DMSG("Arming PGC and executing WFI");
-	//gpt_schedule_interrupt(2000);
+
+	// Test whether GPC is really being used to wake up core
+	if (schedule_wakeup) {
+		if (!wakeup_gic) {
+			itr_disable(GIT_IRQ); // mask GIT timer interrupt
+			itr_disable(USDHC1_IRQ);
+			itr_disable(GPT4_IRQ);
+			gpc_unmask_irq(p, GPT1_IRQ);
+		}
+		gpt_schedule_interrupt(1000);
+	}
 
 	/* arm PGC for power down */
 	if (core_idx == 0)
@@ -298,8 +363,15 @@ static int imx7_do_core_power_down(uint32_t arg)
 
 	imx_gpcv2_set_core_pgc(true, val);
 
-	dsb();
-	wfi();
+	val = 0;
+	while (1) {
+		dsb();
+		wfi();
+		if (val == 0) {
+			gic_dump_state(&gic_data);
+			val = 1;
+		}
+	}
 
 	/* return value ignored by sm_pm_cpu_suspend */
 	return 0;
@@ -315,6 +387,11 @@ int imx7_core_power_down(uintptr_t entry,
 						      MEM_AREA_TEE_COHERENT);
 	struct imx7_pm_info *p = (struct imx7_pm_info *)suspend_ocram_base;
 	int ret;
+	struct git_timer_state git_state;
+
+	DMSG("Before suspend. cntfrq = %d", read_cntfrq());
+
+	git_timer_save_state(&git_state);
 
 	/* save banked registers for every mode except monitor mode */
 	sm_save_modes_regs(&nsec->mode_regs);
@@ -353,7 +430,9 @@ int imx7_core_power_down(uintptr_t entry,
 		return 0;
 	}
 
-	DMSG("Resume from suspend");
+	DMSG("Resume from suspend.");
+
+	git_timer_restore_state(&git_state);
 
 	/* Restore register of different mode in secure world */
 	sm_restore_modes_regs(&nsec->mode_regs);
@@ -363,6 +442,9 @@ int imx7_core_power_down(uintptr_t entry,
 	     (uint32_t)entry, context_id);
 
 	nsec->mon_lr = (uint32_t)entry;
+	nsec->mon_spsr = CPSR_MODE_SVC | CPSR_I | CPSR_F;
+
+	//dump_phys_mem(entry);
 
 	return context_id;
 }

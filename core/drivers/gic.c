@@ -311,10 +311,13 @@ static void gic_it_disable(struct gic_data *gd, size_t it)
 	uint32_t mask = 1 << (it % NUM_INTS_PER_REG);
 
 	/* Assigned to group0 */
-	assert(!(read32(gd->gicd_base + GICD_IGROUPR(idx)) & mask));
+	//assert(!(read32(gd->gicd_base + GICD_IGROUPR(idx)) & mask));
 
 	/* Disable the interrupt */
 	write32(mask, gd->gicd_base + GICD_ICENABLER(idx));
+
+	/* Make it non-pending */
+	write32(mask, gd->gicd_base + GICD_ICPENDR(idx));
 }
 
 static void gic_it_set_pending(struct gic_data *gd, size_t it)
@@ -410,18 +413,22 @@ void gic_dump_state(struct gic_data *gd)
 			uint32_t pending;
 			uint32_t active;
 
-			pending = read32(gd->gicd_base + GICD_ISPENDR(i / 32));
-			active = read32(gd->gicd_base + GICD_ISACTIVER(i / 32));
+			pending = read32(gd->gicd_base + GICD_ISPENDR(i / 32))
+				& (1 << (i % 32));
+
+			active = read32(gd->gicd_base + GICD_ISACTIVER(i / 32))
+				& (1 << (i % 32));
 
 			DMSG("irq%d: enabled, group:%d, target:%x, "
-			     "pending:0x%x, active:0x%x",
+			     "pending:%d, active:%d",
 			     i,
 			     gic_it_get_group(gd, i),
 			     gic_it_get_target(gd, i),
-			     pending,
-			     active);
+			     pending != 0,
+			     active != 0);
 		}
 	}
+	DMSG("Done dumping GIC state");
 }
 
 void gic_it_handle(struct gic_data *gd)

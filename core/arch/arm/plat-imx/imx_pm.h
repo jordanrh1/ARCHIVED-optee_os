@@ -141,6 +141,12 @@ int imx7_suspend_init(void);
 int pm_imx7_iram_tbl_init(void);
 int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		     uint32_t context_id, struct sm_nsec_ctx *nsec);
+
+void gpc_dump_unmasked_irqs(struct imx7_pm_info *p);
+void gpc_mask_all_irqs(struct imx7_pm_info *p);
+void gpc_unmask_irq(struct imx7_pm_info *p, uint32_t irq);
+
+extern struct gic_data gic_data;
 #endif
 
 #endif

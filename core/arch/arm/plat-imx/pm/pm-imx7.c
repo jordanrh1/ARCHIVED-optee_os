@@ -244,6 +244,8 @@ int imx7_suspend_init(void)
 			p->ddrc_phy_val[i][1] = ddrc_phy_offset_array[i][1];
 	}
 
+	gpc_mask_all_irqs(p);
+
 	memcpy((void *)(suspend_ocram_base + sizeof(*p)),
 	       (void *)(vaddr_t)imx7_suspend, SUSPEND_OCRAM_SIZE - sizeof(*p));
 
