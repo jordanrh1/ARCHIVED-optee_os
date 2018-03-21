@@ -526,7 +526,7 @@ static int imx7_do_all_off(uint32_t arg)
 
 	/* shut off the oscillator in DSM */
 	val = read32(p->gpc_va_base + GPC_SLPCR);
-	// val |= GPC_SLPCR_EN_DSM; XXX do we need this?
+	val |= GPC_SLPCR_EN_DSM;
 	val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
 	write32(val, p->gpc_va_base + GPC_SLPCR);
 
