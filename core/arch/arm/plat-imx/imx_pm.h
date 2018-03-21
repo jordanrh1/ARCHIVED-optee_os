@@ -77,6 +77,7 @@
 
 #define MX7_STATE_CORE_POWER_DOWN       0x40000002
 #define MX7_STATE_CORE_WFI              0x00000001
+#define MX7_STATE_A7_POWER_DOWN         0x41000022
 
 #ifndef ASM
 #include <sm/sm.h>

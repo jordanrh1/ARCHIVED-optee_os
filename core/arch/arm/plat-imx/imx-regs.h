@@ -380,6 +380,7 @@
 #define GPC_PGC_C0_PUPSCR               0x804
 #define GPC_PGC_C1			0x840
 #define GPC_PGC_C1_PUPSCR		0x844
+#define GPC_PGC_SCU                     0x880
 
 #define GPC_PGC_PCG_MASK		BIT(0)
 
@@ -427,6 +428,9 @@
 #define GPC_LPCR_A7_AD_EN_C1_WFI_PDN             0x4
 #define GPC_LPCR_A7_AD_EN_C0_PDN                 0x2
 #define GPC_LPCR_A7_AD_EN_C0_WFI_PDN             0x1
+
+#define GPC_SLPCR_EN_DSM                         BIT(31)
+#define GPC_SLPCR_SBYOS				 BIT(1)
 
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK     0x80000000
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK     0x00008000
