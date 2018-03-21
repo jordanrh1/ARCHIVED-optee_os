@@ -492,8 +492,8 @@ static int imx7_do_all_off(uint32_t arg)
 	val |= (2 << 2); // XXX stop mode
 	val &= ~GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;	// A7 clock OFF in wait/stop
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE0_WFI;
-	val |= GPC_LPCR_A7_BSC_MASK_CORE1_WFI; // XXX mask Core1 WFI
-	val |= GPC_LPCR_A7_BSC_MASK_L2CC_WFI; // XXX mask Core2 WFI
+	val &= ~GPC_LPCR_A7_BSC_MASK_CORE1_WFI;
+	val &= ~GPC_LPCR_A7_BSC_MASK_L2CC_WFI;
 
 	// wakeup via IRQ
 	// XXX need to program GPC
