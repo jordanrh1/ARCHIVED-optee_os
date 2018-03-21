@@ -273,8 +273,9 @@ static int imx7_do_core_power_down(uint32_t arg)
 	uint32_t val;
 	int core_idx;
 	struct imx7_pm_info *p = (struct imx7_pm_info *)arg;
-	bool schedule_wakeup = true;
-	bool wakeup_gic = false;
+	bool schedule_wakeup = false;
+	bool wakeup_gic = true;
+	bool force_sleep = false;
 
 	core_idx = get_core_pos();
 
@@ -367,6 +368,7 @@ static int imx7_do_core_power_down(uint32_t arg)
 	while (1) {
 		dsb();
 		wfi();
+		if (!force_sleep) break;
 		if (val == 0) {
 			gic_dump_state(&gic_data);
 			val = 1;
@@ -430,7 +432,7 @@ int imx7_core_power_down(uintptr_t entry,
 		return 0;
 	}
 
-	DMSG("Resume from suspend.");
+	DMSG("Resume from suspend");
 
 	git_timer_restore_state(&git_state);
 
@@ -445,6 +447,7 @@ int imx7_core_power_down(uintptr_t entry,
 	nsec->mon_spsr = CPSR_MODE_SVC | CPSR_I | CPSR_F;
 
 	//dump_phys_mem(entry);
+	//gic_dump_state(&gic_data);
 
 	return context_id;
 }
