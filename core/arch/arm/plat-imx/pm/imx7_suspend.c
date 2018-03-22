@@ -466,10 +466,6 @@ static int imx7_do_all_off(uint32_t arg)
 	// Looks like core-local state gets saved to stack
 	// XXX we need to flush L2 cache
 
-	/* Program ACK selection for LPM */
-	write32(GPC_PGC_ACK_SEL_A7_PLAT_PGC_PUP_ACK |
-                GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK,
-                p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
 
 	/* setup resume address in OCRAM and parameter */
 	val = ((uint32_t)&resume - (uint32_t)&imx7_suspend) + 
@@ -480,7 +476,6 @@ static int imx7_do_all_off(uint32_t arg)
 	
 	/* Program LPCR_A7_BSC */
 	// XXX need spinlock around common register
-	// XXX at what point do we need to mask exceptions?
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_BSC);
 	val &= ~GPC_LPCR_A7_BSC_LPM0;	// Set LPM0 to WAIT mode
 	val |= 2; // XXX stop mode
@@ -497,7 +492,7 @@ static int imx7_do_all_off(uint32_t arg)
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C1;
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
 
-	val &= ~GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER; // XXX not sure
+	val &= ~GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER;
 	//DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
 
@@ -531,6 +526,23 @@ static int imx7_do_all_off(uint32_t arg)
 	val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
 	write32(val, p->gpc_va_base + GPC_SLPCR);
 
+	/* A7_SCU as LPM power down ACK, A7_C0 as LPM power up ack */
+	write32(GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK |
+		GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK,
+                p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+
+	/* A7_C0, A7_C1 power down in SLOT0 */
+	write32(CORE0_A7_PDN_SLOT_CONTROL |
+		CORE1_A7_PDN_SLOT_CONTROL,
+		p->gpc_va_base + GPC_SLT0_CFG);
+
+	/* A7_SCU power down in SLOT1 */
+	write32(SCU_PDN_SLOT_CONTROL,
+		p->gpc_va_base + GPC_SLT1_CFG);
+
+	/* XXX if we power down fastmix/megamix, need to map
+           MIX PGC to A7 LPM */
+
 	DMSG("Arming PGC and executing WFI");
 
 	// Test whether GPC is really being used to wake up core
@@ -544,16 +556,12 @@ static int imx7_do_all_off(uint32_t arg)
 	}
 
 	/* arm PGC for power down */
-	if (core_idx == 0)
-		val = GPC_PGC_C0;
-	else
-		val = GPC_PGC_C1;
-
-	imx_gpcv2_set_core_pgc(true, val);
+	imx_gpcv2_set_core_pgc(true, GPC_PGC_C0);
+	imx_gpcv2_set_core_pgc(true, GPC_PGC_C1);
 	imx_gpcv2_set_core_pgc(true, GPC_PGC_SCU);
 
-	// XXX need to use sequencer to program cores to go down first,
-	// then SCU, and reverse for wakeup
+	/* change nL2retn/mempwr/dftram to meet SCU power up timing */
+	write32((0x59 << 10) | 0x5B | (0x51 << 20), p->gpc_va_base + 0x890);
 
 	val = 0;
 	while (1) {

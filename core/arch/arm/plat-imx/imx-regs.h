@@ -410,6 +410,16 @@
 #define GPC_ISR2_A7                     0x74
 #define GPC_ISR3_A7                     0x78
 #define GPC_ISR4_A7                     0x7C
+#define GPC_SLT0_CFG                    0xB0
+#define GPC_SLT1_CFG                    0xB4
+#define GPC_SLT2_CFG                    0xB8
+#define GPC_SLT3_CFG                    0xBC
+#define GPC_SLT4_CFG                    0xC0
+#define GPC_SLT5_CFG                    0xC4
+#define GPC_SLT6_CFG                    0xC8
+#define GPC_SLT7_CFG                    0xCC
+#define GPC_SLT8_CFG                    0xD0
+#define GPC_SLT9_CFG                    0xD4
 
 #define GPC_LPCR_A7_BSC_LPM0            SHIFT_U32(0x3, 0)
 #define GPC_LPCR_A7_BSC_LPM1            SHIFT_U32(0x3, 2)
@@ -438,11 +448,22 @@
 #define GPC_SLPCR_EN_DSM                         BIT(31)
 #define GPC_SLPCR_SBYOS				 BIT(1)
 
-#define GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK     0x80000000
-#define GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK     0x00008000
-#define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PUP_ACK  BIT(18)
-#define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK  BIT(2)
+#define GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK         0x80000000
+#define GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK         0x00008000
+#define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PUP_ACK      BIT(18)
+#define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK      BIT(2)
+#define GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK        BIT(16)
 
+#define CORE0_A7_PDN_SLOT_CONTROL                BIT(0)
+#define CORE0_A7_PUP_SLOT_CONTROL                BIT(1)
+#define CORE1_A7_PDN_SLOT_CONTROL                BIT(2)
+#define CORE1_A7_PUP_SLOT_CONTROL                BIT(3)
+#define SCU_PDN_SLOT_CONTROL                     BIT(4)
+#define SCU_PUP_SLOT_CONTROL                     BIT(5)
+#define FASTMEGA_PDN_SLOT_CONTROL                BIT(6)
+#define FASTMEGA_PUP_SLOT_CONTROL                BIT(7)
+
+#define FASTMEGA_PDN_SLOT_CONTROL                BIT(6)
 /* GPT register definitions */
 #define GPT_CR                                   0x0
 #define GPT_PR                                   0x4
