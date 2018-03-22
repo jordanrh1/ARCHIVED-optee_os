@@ -523,7 +523,8 @@ static int imx7_do_all_off(uint32_t arg)
 
 	/* shut off the oscillator in DSM */
 	val = 0;
-	val |= GPC_SLPCR_EN_DSM;
+	//val = 0xe000ffA7;
+	//val |= GPC_SLPCR_EN_DSM;
 	//val |= GPC_SLPCR_RBC_EN;
 	//val |= (63 << 24);
 	//val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
