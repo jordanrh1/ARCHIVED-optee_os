@@ -406,6 +406,10 @@
 #define GPC_IMR2_CORE1_A7               0x44
 #define GPC_IMR3_CORE1_A7               0x48
 #define GPC_IMR4_CORE1_A7               0x4C
+#define GPC_ISR1_A7                     0x70
+#define GPC_ISR2_A7                     0x74
+#define GPC_ISR3_A7                     0x78
+#define GPC_ISR4_A7                     0x7C
 
 #define GPC_LPCR_A7_BSC_LPM0            SHIFT_U32(0x3, 0)
 #define GPC_LPCR_A7_BSC_LPM1            SHIFT_U32(0x3, 2)

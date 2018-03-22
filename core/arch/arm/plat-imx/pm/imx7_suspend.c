@@ -46,15 +46,6 @@
 #include <sm/psci.h>
 #include <stdint.h>
 
-#define MX7D_GPC_IMR1   0x30
-#define MX7D_GPC_IMR2   0x34
-#define MX7D_GPC_IMR3   0x38
-#define MX7D_GPC_IMR4   0x3c
-
-#define MX7D_GPC_ISR1_A7 0x70
-#define MX7D_GPC_ISR2_A7 0x74
-#define MX7D_GPC_ISR3_A7 0x78
-#define MX7D_GPC_ISR4_A7 0x7C
 #define GPT_FREQ 1000000
 #define GPT_PRESCALER24M (12 - 1)
 #define GPT_PRESCALER (2 - 1)
@@ -208,35 +199,40 @@ void gpc_dump_unmasked_irqs(struct imx7_pm_info *p)
 {
 	vaddr_t gpc_base = p->gpc_va_base;
 	DMSG("~IMR1=0x%x, ~IMR2=0x%x, ~IMR3=0x%x, ~IMR4=0x%x",
-	     ~read32(gpc_base + MX7D_GPC_IMR1),
-	     ~read32(gpc_base + MX7D_GPC_IMR2),
-	     ~read32(gpc_base + MX7D_GPC_IMR3),
-	     ~read32(gpc_base + MX7D_GPC_IMR4));
+	     ~read32(gpc_base + GPC_IMR1_CORE0_A7),
+	     ~read32(gpc_base + GPC_IMR2_CORE0_A7),
+	     ~read32(gpc_base + GPC_IMR3_CORE0_A7),
+	     ~read32(gpc_base + GPC_IMR4_CORE0_A7));
 
 	DMSG("IRS1=0x%x, ISR2=0x%x, ISR3=0x%x, ISR4=0x%x",
-	      read32(gpc_base + MX7D_GPC_ISR1_A7),
-	      read32(gpc_base + MX7D_GPC_ISR2_A7),
-	      read32(gpc_base + MX7D_GPC_ISR3_A7),
-	      read32(gpc_base + MX7D_GPC_ISR4_A7));
+	      read32(gpc_base + GPC_ISR1_A7),
+	      read32(gpc_base + GPC_ISR2_A7),
+	      read32(gpc_base + GPC_ISR3_A7),
+	      read32(gpc_base + GPC_ISR4_A7));
 }
 
 void gpc_mask_all_irqs(struct imx7_pm_info *p)
 {
 	vaddr_t gpc_base = p->gpc_va_base;
 	DMSG("Masking all IRQs in GPC");
-	write32(~0x0, gpc_base + MX7D_GPC_IMR1);
-	write32(~0x0, gpc_base + MX7D_GPC_IMR2);
-	write32(~0x0, gpc_base + MX7D_GPC_IMR3);
-	write32(~0x0, gpc_base + MX7D_GPC_IMR4);
+	write32(~0x0, gpc_base + GPC_IMR1_CORE0_A7);
+	write32(~0x0, gpc_base + GPC_IMR2_CORE0_A7);
+	write32(~0x0, gpc_base + GPC_IMR3_CORE0_A7);
+	write32(~0x0, gpc_base + GPC_IMR4_CORE0_A7);
+
+	write32(~0x0, gpc_base + GPC_IMR1_CORE1_A7);
+	write32(~0x0, gpc_base + GPC_IMR2_CORE1_A7);
+	write32(~0x0, gpc_base + GPC_IMR3_CORE1_A7);
+	write32(~0x0, gpc_base + GPC_IMR4_CORE1_A7);
 }
 
 void gpc_unmask_irq(struct imx7_pm_info *p, uint32_t irq)
 {
 	vaddr_t gpc_base = p->gpc_va_base;
 	uint32_t val;
-	val = read32(gpc_base + MX7D_GPC_IMR1 + ((irq - 32) / 32) * 4);
+	val = read32(gpc_base + GPC_IMR1_CORE0_A7 + ((irq - 32) / 32) * 4);
 	val &= ~(1 << (irq % 32));
-	write32(val, gpc_base + MX7D_GPC_IMR1 + ((irq - 32) / 32) * 4);
+	write32(val, gpc_base + GPC_IMR1_CORE0_A7 + ((irq - 32) / 32) * 4);
 }
 
 static void dump_phys_mem(uint32_t paddr)
