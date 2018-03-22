@@ -654,6 +654,8 @@ standby_out:
 
 .global resume
 resume:
+	blx my_print_hex
+
 	write_iciallu
 	write_bpiall
 	dsb
@@ -730,3 +732,49 @@ _inv_nextline:
 	b	sm_pm_cpu_resume
 UNWIND(	.fnend)
 END_FUNC ca7_cpu_resume
+
+FUNC my_print_hex, :
+UNWIND( .fnstart)
+UNWIND( .cantunwind)
+
+        read_sctlr      r1              // Is MMU on?
+        tst     r1, #SCTLR_M
+
+        movweq  r3, #0x0000             // load UART2 PA base
+        movteq  r3, #0x3089
+
+        movwne  r3, #0x0000             // load UART VA base
+        movtne  r3, #0x85b9
+
+        mov     r1, #48                 // print '0'
+        str     r1, [r3, #0x40]
+        mov     r1, #120                // print 'x'
+        str     r1, [r3, #0x40]
+
+	mov	r2, #32
+print_byte:
+	sub	r2, r2, #4
+        lsr     r1, r0, r2              // Get nibble
+        and     r1, r1, #0xf
+
+        cmp     r1, #10                 // Less than 10?
+        addlt   r1, r1, #48             // Add '0'
+        addge   r1, r1, #55             // Add 'A' - 10
+        str     r1, [r3, #0x40]         // Write to UART TXd
+
+	cmp	r2, #0
+        bne     print_byte              // until 0
+
+        mov     r1, #13                 // print CR
+        str     r1, [r3, #0x40]
+        mov     r1, #10                 // print LF
+        str     r1, [r3, #0x40]
+
+wait_fifo_empty:
+        ldr     r1, [r3, #0xB4]         // Load UART Test register
+        tst     r1, #(1 << 6)
+        beq     wait_fifo_empty
+
+        bx lr
+UNWIND( .fnend)
+END_FUNC my_print_hex
