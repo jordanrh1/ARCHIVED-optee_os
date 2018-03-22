@@ -478,9 +478,9 @@ static int imx7_do_all_off(uint32_t arg)
 	// XXX need spinlock around common register
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_BSC);
 	val &= ~GPC_LPCR_A7_BSC_LPM0;	// Set LPM0 to WAIT mode
-	val |= 2; // XXX stop mode
+	val |= 1;
 	val &= ~GPC_LPCR_A7_BSC_LPM1;   // Set LPM1 to WAIT mode
-	val |= (2 << 2); // XXX stop mode
+	val |= (1 << 2);
 	val &= ~GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;	// A7 clock OFF in wait/stop
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE0_WFI;
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE1_WFI;
@@ -522,8 +522,8 @@ static int imx7_do_all_off(uint32_t arg)
 	write32(val, p->gpc_va_base + GPC_LPCR_M4);
 
 	/* shut off the oscillator in DSM */
-	val = 0xe000ffa7;
-	//val |= GPC_SLPCR_EN_DSM;
+	val = 0;
+	val |= GPC_SLPCR_EN_DSM;
 	//val |= GPC_SLPCR_RBC_EN;
 	//val |= (63 << 24);
 	//val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
