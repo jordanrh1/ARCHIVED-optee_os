@@ -446,7 +446,9 @@
 #define GPC_LPCR_M4_MASK_DSM_TRIGGER             BIT(31)
 
 #define GPC_SLPCR_EN_DSM                         BIT(31)
+#define GPC_SLPCR_RBC_EN                         BIT(30)
 #define GPC_SLPCR_SBYOS				 BIT(1)
+#define GPC_SLPCR_BYPASS_PMIC_READY              BIT(0)
 
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK         0x80000000
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK         0x00008000

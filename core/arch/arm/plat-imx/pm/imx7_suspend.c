@@ -493,7 +493,7 @@ static int imx7_do_all_off(uint32_t arg)
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
 
 	val &= ~GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER;
-	//DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
+	DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
 
 	/* Program A7 advanced power control register */
@@ -512,18 +512,23 @@ static int imx7_do_all_off(uint32_t arg)
 	val &= ~GPC_LPCR_A7_AD_EN_C1_WFI_PDN; // ignore core WFI
 	val &= ~GPC_LPCR_A7_AD_EN_C1_IRQ_PUP; // do not power up with IRQ
 
-	//DMSG("GPC_LPCR_A7_AD = 0x%x", val);
+	DMSG("GPC_LPCR_A7_AD = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
 
 	/* program M4 power control register */
 	val = read32(p->gpc_va_base + GPC_LPCR_M4);
 	val |= GPC_LPCR_M4_MASK_DSM_TRIGGER;
+	DMSG("GPC_LPCR_M4 = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_M4);
 
 	/* shut off the oscillator in DSM */
-	val = read32(p->gpc_va_base + GPC_SLPCR);
-	val |= GPC_SLPCR_EN_DSM;
-	val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
+	val = 0xe000ffa7;
+	//val |= GPC_SLPCR_EN_DSM;
+	//val |= GPC_SLPCR_RBC_EN;
+	//val |= (63 << 24);
+	//val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
+	//val |= GPC_SLPCR_BYPASS_PMIC_READY;
+	DMSG("GPC_SLPCR = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_SLPCR);
 
 	/* A7_SCU as LPM power down ACK, A7_C0 as LPM power up ack */
@@ -599,7 +604,7 @@ int imx7_all_off(uintptr_t entry,
 	/* save banked registers for every mode except monitor mode */
 	sm_save_modes_regs(&nsec->mode_regs);
 	
-	ret = sm_pm_cpu_suspend((uint32_t)p, imx7_do_core_power_down);
+	ret = sm_pm_cpu_suspend((uint32_t)p, imx7_do_all_off);
 
 	core_idx = get_core_pos();
 
