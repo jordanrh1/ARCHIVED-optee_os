@@ -434,6 +434,8 @@
 
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK     0x80000000
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK     0x00008000
+#define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PUP_ACK  BIT(18)
+#define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK  BIT(2)
 
 /* GPT register definitions */
 #define GPT_CR                                   0x0

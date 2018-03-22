@@ -471,8 +471,8 @@ static int imx7_do_all_off(uint32_t arg)
 	// XXX we need to flush L2 cache
 
 	/* Program ACK selection for LPM */
-	write32(GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK |
-                GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK,
+	write32(GPC_PGC_ACK_SEL_A7_PLAT_PGC_PUP_ACK |
+                GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK,
                 p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
 
 	/* setup resume address in OCRAM and parameter */
