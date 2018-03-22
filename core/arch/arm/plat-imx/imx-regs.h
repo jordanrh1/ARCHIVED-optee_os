@@ -433,6 +433,8 @@
 #define GPC_LPCR_A7_AD_EN_C0_PDN                 0x2
 #define GPC_LPCR_A7_AD_EN_C0_WFI_PDN             0x1
 
+#define GPC_LPCR_M4_MASK_DSM_TRIGGER             BIT(31)
+
 #define GPC_SLPCR_EN_DSM                         BIT(31)
 #define GPC_SLPCR_SBYOS				 BIT(1)
 

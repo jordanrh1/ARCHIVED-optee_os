@@ -508,9 +508,9 @@ static int imx7_do_all_off(uint32_t arg)
 
 	/* power down all cores on LPM request */
 	val |= GPC_LPCR_A7_AD_EN_C0_PDN; // Core0 will power down with LPM
-	val &= ~GPC_LPCR_A7_AD_EN_C0_PUP; // Not sure what this does
+	val |= GPC_LPCR_A7_AD_EN_C0_PUP; // Not sure what this does
 	val &= ~GPC_LPCR_A7_AD_EN_C0_WFI_PDN; // ignore core WFI
-	val |= GPC_LPCR_A7_AD_EN_C0_IRQ_PUP; // Power up with IRQ request
+	val &= ~GPC_LPCR_A7_AD_EN_C0_IRQ_PUP;
 
 	val |= GPC_LPCR_A7_AD_EN_C1_PDN;  // Core1 will power down with LPM
 	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP; // not sure abou this
@@ -519,6 +519,11 @@ static int imx7_do_all_off(uint32_t arg)
 
 	//DMSG("GPC_LPCR_A7_AD = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
+
+	/* program M4 power control register */
+	val = read32(p->gpc_va_base + GPC_LPCR_M4);
+	val |= GPC_LPCR_M4_MASK_DSM_TRIGGER;
+	write32(val, p->gpc_va_base + GPC_LPCR_M4);
 
 	/* shut off the oscillator in DSM */
 	val = read32(p->gpc_va_base + GPC_SLPCR);
