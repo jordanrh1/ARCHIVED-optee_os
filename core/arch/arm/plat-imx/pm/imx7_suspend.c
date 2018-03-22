@@ -546,6 +546,14 @@ static int imx7_do_all_off(uint32_t arg)
 	write32(SCU_PDN_SLOT_CONTROL,
 		p->gpc_va_base + GPC_SLT1_CFG);
 
+	/* A7_SCU power up in SLOT2 */
+	write32(SCU_PUP_SLOT_CONTROL,
+		p->gpc_va_base + GPC_SLT2_CFG);
+
+	/* A7_C0 power up in SLOT3 */
+	write32(CORE0_A7_PUP_SLOT_CONTROL,
+		p->gpc_va_base + GPC_SLT3_CFG);
+
 	/* XXX if we power down fastmix/megamix, need to map
            MIX PGC to A7 LPM */
 
