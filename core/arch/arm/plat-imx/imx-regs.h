@@ -459,6 +459,7 @@
 #define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PUP_ACK      BIT(18)
 #define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK      BIT(2)
 #define GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK        BIT(16)
+#define GPC_PGC_ACK_SEL_A7_C0_PGC_PDN_ACK        BIT(0)
 
 #define CORE0_A7_PDN_SLOT_CONTROL                BIT(0)
 #define CORE0_A7_PUP_SLOT_CONTROL                BIT(1)
@@ -502,6 +503,7 @@
 #define GPIO_GDIR                                0x4
 #define GPIO_PSR                                 0x8
 
-
+/* CCM definitions */
+#define CCM_CCGR124                              0x47C0
 
 #endif

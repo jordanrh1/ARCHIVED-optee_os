@@ -152,7 +152,7 @@ static void gpt_init(void)
 	val |= GPT_CR_EN_24M;
 	write32(val, gpt_base + GPT_CR);
 
-	DMSG("Initialized GPT");
+	DMSG("Initialized GPT. (GPT_CR=0x%x)", read32(gpt_base + GPT_CR));
 }
 
 static void gpt_delay(uint32_t ms)
@@ -465,6 +465,8 @@ static int imx7_do_all_off(uint32_t arg)
 	uint32_t val;
 	int core_idx;
 	struct imx7_pm_info *p = (struct imx7_pm_info *)arg;
+	bool power_down_cores = false;
+	bool power_down_scu = false;
 	bool schedule_wakeup = true;
 	bool force_sleep = true;
 
@@ -477,11 +479,14 @@ static int imx7_do_all_off(uint32_t arg)
 
 
 	/* setup resume address in OCRAM and parameter */
-	val = ((uint32_t)&resume - (uint32_t)&imx7_suspend) + 
-		p->pa_base + p->pm_info_size;
+	if (power_down_cores) {
+		val = ((uint32_t)&resume - (uint32_t)&imx7_suspend) + 
+			p->pa_base + p->pm_info_size;
 
-	write32(val, p->src_va_base + SRC_GPR1_MX7 + core_idx * 8);
-	write32(p->pa_base, p->src_va_base + SRC_GPR2_MX7 + core_idx * 8);
+		write32(val, p->src_va_base + SRC_GPR1_MX7 + core_idx * 8);
+		write32(p->pa_base,
+			p->src_va_base + SRC_GPR2_MX7 + core_idx * 8);
+	}
 	
 	/* Program LPCR_A7_BSC */
 	gpc_unmask_irq(p, GPR_IRQ);
@@ -492,13 +497,16 @@ static int imx7_do_all_off(uint32_t arg)
 	val |= 1;
 	val &= ~GPC_LPCR_A7_BSC_LPM1;   // Set LPM1 to WAIT mode
 	val |= (1 << 2);
-	val &= ~GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;	// A7 clock OFF in wait/stop
+	if (power_down_scu) {
+		val &= ~GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;
+	} else {
+		val |= GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;
+	}
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE0_WFI;
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE1_WFI;
 	val &= ~GPC_LPCR_A7_BSC_MASK_L2CC_WFI;
 
 	// wakeup via IRQ
-	// XXX need to program GPC
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C0;
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C1;
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
@@ -509,16 +517,26 @@ static int imx7_do_all_off(uint32_t arg)
 
 	/* Program A7 advanced power control register */
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_AD);
-	val |= GPC_LPCR_A7_AD_L2_PGE;	// power down L2. XXX L2 flush required
-	val |= GPC_LPCR_A7_AD_EN_PLAT_PDN;  // power down SCU and L2
+	if (power_down_scu) {
+		val |= GPC_LPCR_A7_AD_L2_PGE;	// Power down L2
+		val |= GPC_LPCR_A7_AD_EN_PLAT_PDN;  // Power down SCU
+	} else {
+		val &= ~GPC_LPCR_A7_AD_L2_PGE;
+		val &= ~GPC_LPCR_A7_AD_EN_PLAT_PDN;
+	}
 
 	/* power down all cores on LPM request */
-	val |= GPC_LPCR_A7_AD_EN_C0_PDN; // Core0 will power down with LPM
-	val |= GPC_LPCR_A7_AD_EN_C0_PUP; // Not sure what this does
+	if (power_down_cores) {
+		val |= GPC_LPCR_A7_AD_EN_C0_PDN; // power down Core0 with LPM
+		val |= GPC_LPCR_A7_AD_EN_C0_PUP;
+		val |= GPC_LPCR_A7_AD_EN_C1_PDN; // power down Core1 with LPM
+	} else {
+		val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;
+		val &= ~GPC_LPCR_A7_AD_EN_C1_PDN; 
+	}
+
 	val &= ~GPC_LPCR_A7_AD_EN_C0_WFI_PDN; // ignore core WFI
 	val &= ~GPC_LPCR_A7_AD_EN_C0_IRQ_PUP;
-
-	val |= GPC_LPCR_A7_AD_EN_C1_PDN;  // Core1 will power down with LPM
 	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP; // not sure abou this
 	val &= ~GPC_LPCR_A7_AD_EN_C1_WFI_PDN; // ignore core WFI
 	val &= ~GPC_LPCR_A7_AD_EN_C1_IRQ_PUP; // do not power up with IRQ
@@ -535,7 +553,7 @@ static int imx7_do_all_off(uint32_t arg)
 	/* shut off the oscillator in DSM */
 	val = 0;
 	//val = 0xe000ffA7;
-	//val |= GPC_SLPCR_EN_DSM;
+	val |= GPC_SLPCR_EN_DSM;
 	//val |= GPC_SLPCR_RBC_EN;
 	//val |= (63 << 24);
 	//val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
@@ -544,45 +562,66 @@ static int imx7_do_all_off(uint32_t arg)
 	write32(val, p->gpc_va_base + GPC_SLPCR);
 
 	/* A7_SCU as LPM power down ACK, A7_C0 as LPM power up ack */
-	write32(GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK |
-		GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK,
-                p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+	if (power_down_scu) {
+		assert(power_down_cores);
 
-	/* A7_C0, A7_C1 power down in SLOT0 */
-	write32(CORE0_A7_PDN_SLOT_CONTROL |
-		CORE1_A7_PDN_SLOT_CONTROL,
-		p->gpc_va_base + GPC_SLT0_CFG);
+		write32(GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK |
+			GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK,
+			p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
 
-	/* A7_SCU power down in SLOT1 */
-	write32(SCU_PDN_SLOT_CONTROL,
-		p->gpc_va_base + GPC_SLT1_CFG);
+		/* A7_C0, A7_C1 power down in SLOT0 */
+		write32(CORE0_A7_PDN_SLOT_CONTROL |
+			CORE1_A7_PDN_SLOT_CONTROL,
+			p->gpc_va_base + GPC_SLT0_CFG);
 
-	/* A7_SCU power up in SLOT2 */
-	write32(SCU_PUP_SLOT_CONTROL,
-		p->gpc_va_base + GPC_SLT2_CFG);
+		/* A7_SCU power down in SLOT1 */
+		write32(SCU_PDN_SLOT_CONTROL,
+			p->gpc_va_base + GPC_SLT1_CFG);
 
-	/* A7_C0 power up in SLOT3 */
-	write32(CORE0_A7_PUP_SLOT_CONTROL,
-		p->gpc_va_base + GPC_SLT3_CFG);
+		/* A7_SCU power up in SLOT2 */
+		write32(SCU_PUP_SLOT_CONTROL,
+			p->gpc_va_base + GPC_SLT2_CFG);
+
+		/* A7_C0 power up in SLOT3 */
+		write32(CORE0_A7_PUP_SLOT_CONTROL,
+			p->gpc_va_base + GPC_SLT3_CFG);
+	} else if (power_down_cores) {
+		write32(GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK |
+			GPC_PGC_ACK_SEL_A7_C0_PGC_PDN_ACK,
+			p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+
+		/* A7_C0, A7_C1 power down in SLOT0 */
+		write32(CORE0_A7_PDN_SLOT_CONTROL |
+			CORE1_A7_PDN_SLOT_CONTROL,
+			p->gpc_va_base + GPC_SLT0_CFG);
+
+		/* A7_C0 power up in SLOT1 */
+		write32(CORE0_A7_PUP_SLOT_CONTROL,
+			p->gpc_va_base + GPC_SLT1_CFG);
+
+	} else {
+		write32(GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK |
+			GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK,
+			p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+	}
 
 	/* XXX if we power down fastmix/megamix, need to map
            MIX PGC to A7 LPM */
 	DMSG("Arming PGC and executing WFI");
 
-	// Test whether GPC is really being used to wake up core
 	if (schedule_wakeup) {
 		itr_disable(GIT_IRQ); // mask GIT timer interrupt
 		itr_disable(USDHC1_IRQ);
 		itr_disable(GPT4_IRQ);
 		
 		gpc_unmask_irq(p, GPT1_IRQ);
-		gpt_schedule_interrupt(1000);
+		gpt_schedule_interrupt(5000);
 	}
 
 	/* arm PGC for power down */
-	imx_gpcv2_set_core_pgc(true, GPC_PGC_C0);
-	imx_gpcv2_set_core_pgc(true, GPC_PGC_C1);
-	imx_gpcv2_set_core_pgc(true, GPC_PGC_SCU);
+	imx_gpcv2_set_core_pgc(power_down_cores, GPC_PGC_C0);
+	imx_gpcv2_set_core_pgc(power_down_cores, GPC_PGC_C1);
+	imx_gpcv2_set_core_pgc(power_down_scu, GPC_PGC_SCU);
 
 	/* change nL2retn/mempwr/dftram to meet SCU power up timing */
 	write32((0x59 << 10) | 0x5B | (0x51 << 20), p->gpc_va_base + 0x890);
