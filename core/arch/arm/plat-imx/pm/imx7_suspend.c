@@ -46,9 +46,16 @@
 #include <sm/psci.h>
 #include <stdint.h>
 
+#define GPT_USE_32K
+#ifdef GPT_USE_32K
+#define GPT_FREQ 32768
+#define GPT_PRESCALER24M 0
+#define GPT_PRESCALER 0
+#else
 #define GPT_FREQ 1000000
 #define GPT_PRESCALER24M (12 - 1)
 #define GPT_PRESCALER (2 - 1)
+#endif
 
 #define GIT_IRQ 27
 #define GPR_IRQ 32
@@ -128,11 +135,16 @@ static void gpt_init(void)
 	while ((read32(gpt_base + GPT_CR) & GPT_CR_SWR) != 0);
 
 	/* Set prescaler to target frequency */
-	val = ((GPT_PRESCALER24M & 0xf) << 12) | (GPT_PRESCALER & 0xfff);
+	val = ((GPT_PRESCALER24M & 0xf) << 12) |  (GPT_PRESCALER & 0xfff);
 	write32(val, gpt_base + GPT_PR);
 
 	/* Select clock source */
-	write32(GPT_CR_CLKSRC_24M, gpt_base + GPT_CR);
+#ifdef GPT_USE_32K
+	val = GPT_CR_CLKSRC_32K;
+#else
+	val = GPT_CR_CLKSRC_24M;
+#endif
+	write32(val, gpt_base + GPT_CR);
 
 	/* Register interrupt handler */
 	gpt1_itr.it = GPT1_IRQ;
@@ -149,7 +161,9 @@ static void gpt_init(void)
 	val |= GPT_CR_DOZEEN;
 	val |= GPT_CR_DBGEN;
 	val |= GPT_CR_FRR;
+#ifndef GPT_USE_32K
 	val |= GPT_CR_EN_24M;
+#endif
 	write32(val, gpt_base + GPT_CR);
 
 	DMSG("Initialized GPT. (GPT_CR=0x%x)", read32(gpt_base + GPT_CR));
@@ -467,10 +481,11 @@ static int imx7_do_all_off(uint32_t arg)
 	uint32_t val;
 	int core_idx;
 	struct imx7_pm_info *p = (struct imx7_pm_info *)arg;
-	bool power_down_cores = true;
+	bool power_down_cores = false;
 	bool power_down_scu = false;
 	bool schedule_wakeup = true;
 	bool force_sleep = true;
+	bool stop_arm_clock = true;
 	int lpm = 1;
 
 	core_idx = get_core_pos();
@@ -500,7 +515,8 @@ static int imx7_do_all_off(uint32_t arg)
 	val |= lpm;
 	val &= ~GPC_LPCR_A7_BSC_LPM1;   // Set LPM1 to WAIT mode
 	val |= (lpm << 2);
-	if (power_down_scu) {
+	if (power_down_scu || stop_arm_clock) {
+		assert(stop_arm_clock);
 		val &= ~GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;
 	} else {
 		val |= GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;
@@ -555,7 +571,7 @@ static int imx7_do_all_off(uint32_t arg)
 	/* shut off the oscillator in DSM */
 	val = 0;
 	//val = 0xe000ffA7;
-	val |= GPC_SLPCR_EN_DSM;
+	//val |= GPC_SLPCR_EN_DSM;
 	//val |= GPC_SLPCR_RBC_EN;
 	//val |= (63 << 24);
 	//val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM

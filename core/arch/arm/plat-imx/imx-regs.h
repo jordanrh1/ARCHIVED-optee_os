@@ -490,6 +490,7 @@
 #define GPT_CR_DOZEEN                            BIT(4)
 #define GPT_CR_STOPEN                            BIT(5)
 #define GPT_CR_CLKSRC_24M                        SHIFT_U32(0x5, 6)
+#define GPT_CR_CLKSRC_32K                        SHIFT_U32(0x4, 6)
 #define GPT_CR_FRR                               BIT(9)
 #define GPT_CR_EN_24M                            BIT(10)
 #define GPT_CR_SWR                               BIT(15)
