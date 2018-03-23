@@ -469,6 +469,7 @@ static int imx7_do_all_off(uint32_t arg)
 	bool power_down_scu = false;
 	bool schedule_wakeup = true;
 	bool force_sleep = true;
+	int lpm = 2;
 
 	core_idx = get_core_pos();
 
@@ -494,9 +495,9 @@ static int imx7_do_all_off(uint32_t arg)
 	// XXX need spinlock around common register
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_BSC);
 	val &= ~GPC_LPCR_A7_BSC_LPM0;	// Set LPM0 to WAIT mode
-	val |= 1;
+	val |= lpm;
 	val &= ~GPC_LPCR_A7_BSC_LPM1;   // Set LPM1 to WAIT mode
-	val |= (1 << 2);
+	val |= (lpm << 2);
 	if (power_down_scu) {
 		val &= ~GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;
 	} else {
