@@ -320,7 +320,7 @@ static int imx7_do_core_power_down(uint32_t arg)
 		// XXX need to program GPC
 		val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C0;
 		val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C1;
-		val |= GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
+		val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
 	}
 
 	val &= ~GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER; // XXX not sure
