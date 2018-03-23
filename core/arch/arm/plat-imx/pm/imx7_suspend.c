@@ -356,6 +356,8 @@ static int imx7_do_core_power_down(uint32_t arg)
 			itr_disable(GIT_IRQ); // mask GIT timer interrupt
 			itr_disable(USDHC1_IRQ);
 			itr_disable(GPT4_IRQ);
+
+			itr_disable(GPT1_IRQ);
 			gpc_unmask_irq(p, GPT1_IRQ);
 		}
 		gpt_schedule_interrupt(1000);
