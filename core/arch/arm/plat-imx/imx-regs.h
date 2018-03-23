@@ -349,8 +349,12 @@
 
 #define SNVS_LPSR_PGD			(1u << 3)
 
+#define IOMUXC_GPR1_OFFSET      0x04
 #define IOMUXC_GPR4_OFFSET	0x10
 #define IOMUXC_GPR5_OFFSET	0x14
+
+#define IOMUXC_GPR1_IRQ                 BIT(12)
+
 #define ARM_WFI_STAT_MASK(n)	BIT(n)
 
 #define ARM_WFI_STAT_MASK_7D(n)	BIT(25 + ((n) & 1))

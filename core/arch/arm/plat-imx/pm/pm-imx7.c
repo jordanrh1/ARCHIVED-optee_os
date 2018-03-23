@@ -161,6 +161,15 @@ int pm_imx7_iram_tbl_init(void)
 	return 0;
 }
 
+static void enable_gpr_irq(struct imx7_pm_info *p)
+{
+	uint32_t val;
+	vaddr_t iomuxc_gpr_base = p->iomuxc_gpr_va_base;
+	val = read32(iomuxc_gpr_base + IOMUXC_GPR1_OFFSET);
+	val |= IOMUXC_GPR1_IRQ;
+	write32(val, iomuxc_gpr_base + IOMUXC_GPR1_OFFSET);
+}
+
 int imx7_suspend_init(void)
 {
 	uint32_t i;
@@ -245,6 +254,7 @@ int imx7_suspend_init(void)
 	}
 
 	gpc_mask_all_irqs(p);
+	enable_gpr_irq(p);
 
 	memcpy((void *)(suspend_ocram_base + sizeof(*p)),
 	       (void *)(vaddr_t)imx7_suspend, SUSPEND_OCRAM_SIZE - sizeof(*p));

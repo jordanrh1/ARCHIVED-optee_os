@@ -51,6 +51,7 @@
 #define GPT_PRESCALER (2 - 1)
 
 #define GIT_IRQ 27
+#define GPR_IRQ 32
 #define GPT1_IRQ (55 + 32)
 #define GPT4_IRQ (52 + 32)
 #define USDHC1_IRQ (22 + 32)
@@ -138,8 +139,7 @@ static void gpt_init(void)
 	gpt1_itr.flags = ITRF_TRIGGER_LEVEL;
 	gpt1_itr.handler = gpt_itr_cb;
 	itr_add(&gpt1_itr);
-	//itr_enable(gpt1_itr.it);	// Rely on GPT to wake back up
-	//itr_set_affinity(gpt1_itr.it, 0x1);
+	itr_enable(GPT1_IRQ);
 
 	val = read32(gpt_base + GPT_CR);
 	val |= GPT_CR_EN;
@@ -232,6 +232,15 @@ void gpc_unmask_irq(struct imx7_pm_info *p, uint32_t irq)
 	uint32_t val;
 	val = read32(gpc_base + GPC_IMR1_CORE0_A7 + ((irq - 32) / 32) * 4);
 	val &= ~(1 << (irq % 32));
+	write32(val, gpc_base + GPC_IMR1_CORE0_A7 + ((irq - 32) / 32) * 4);
+}
+
+void gpc_mask_irq(struct imx7_pm_info *p, uint32_t irq)
+{
+	vaddr_t gpc_base = p->gpc_va_base;
+	uint32_t val;
+	val = read32(gpc_base + GPC_IMR1_CORE0_A7 + ((irq - 32) / 32) * 4);
+	val |= (1 << (irq % 32));
 	write32(val, gpc_base + GPC_IMR1_CORE0_A7 + ((irq - 32) / 32) * 4);
 }
 
@@ -475,6 +484,8 @@ static int imx7_do_all_off(uint32_t arg)
 	write32(p->pa_base, p->src_va_base + SRC_GPR2_MX7 + core_idx * 8);
 	
 	/* Program LPCR_A7_BSC */
+	gpc_unmask_irq(p, GPR_IRQ);
+
 	// XXX need spinlock around common register
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_BSC);
 	val &= ~GPC_LPCR_A7_BSC_LPM0;	// Set LPM0 to WAIT mode
@@ -556,7 +567,6 @@ static int imx7_do_all_off(uint32_t arg)
 
 	/* XXX if we power down fastmix/megamix, need to map
            MIX PGC to A7 LPM */
-
 	DMSG("Arming PGC and executing WFI");
 
 	// Test whether GPC is really being used to wake up core
@@ -576,6 +586,8 @@ static int imx7_do_all_off(uint32_t arg)
 
 	/* change nL2retn/mempwr/dftram to meet SCU power up timing */
 	write32((0x59 << 10) | 0x5B | (0x51 << 20), p->gpc_va_base + 0x890);
+
+	gpc_mask_irq(p, GPR_IRQ);
 
 	val = 0;
 	while (1) {
