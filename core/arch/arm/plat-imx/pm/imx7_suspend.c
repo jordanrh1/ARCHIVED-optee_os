@@ -505,7 +505,7 @@ static int imx7_do_all_off(uint32_t arg)
 	val |= GPC_LPCR_A7_AD_EN_C0_PDN; // Core0 will power down with LPM
 	val |= GPC_LPCR_A7_AD_EN_C0_PUP; // Not sure what this does
 	val &= ~GPC_LPCR_A7_AD_EN_C0_WFI_PDN; // ignore core WFI
-	val |= GPC_LPCR_A7_AD_EN_C0_IRQ_PUP;
+	val &= ~GPC_LPCR_A7_AD_EN_C0_IRQ_PUP;
 
 	val |= GPC_LPCR_A7_AD_EN_C1_PDN;  // Core1 will power down with LPM
 	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP; // not sure abou this
