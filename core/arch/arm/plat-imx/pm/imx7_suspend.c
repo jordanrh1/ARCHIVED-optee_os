@@ -465,11 +465,11 @@ static int imx7_do_all_off(uint32_t arg)
 	uint32_t val;
 	int core_idx;
 	struct imx7_pm_info *p = (struct imx7_pm_info *)arg;
-	bool power_down_cores = false;
+	bool power_down_cores = true;
 	bool power_down_scu = false;
 	bool schedule_wakeup = true;
 	bool force_sleep = true;
-	int lpm = 2;
+	int lpm = 1;
 
 	core_idx = get_core_pos();
 
@@ -507,7 +507,6 @@ static int imx7_do_all_off(uint32_t arg)
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE1_WFI;
 	val &= ~GPC_LPCR_A7_BSC_MASK_L2CC_WFI;
 
-	// wakeup via IRQ
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C0;
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C1;
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
@@ -563,43 +562,35 @@ static int imx7_do_all_off(uint32_t arg)
 	write32(val, p->gpc_va_base + GPC_SLPCR);
 
 	/* A7_SCU as LPM power down ACK, A7_C0 as LPM power up ack */
-	if (power_down_scu) {
-		assert(power_down_cores);
-
-		write32(GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK |
-			GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK,
-			p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
-
+	if (power_down_cores) {
 		/* A7_C0, A7_C1 power down in SLOT0 */
 		write32(CORE0_A7_PDN_SLOT_CONTROL |
 			CORE1_A7_PDN_SLOT_CONTROL,
 			p->gpc_va_base + GPC_SLT0_CFG);
 
-		/* A7_SCU power down in SLOT1 */
-		write32(SCU_PDN_SLOT_CONTROL,
-			p->gpc_va_base + GPC_SLT1_CFG);
+		if (power_down_scu) {
+			/* A7_SCU power down in SLOT3 */
+			write32(SCU_PDN_SLOT_CONTROL,
+				p->gpc_va_base + GPC_SLT3_CFG);
 
-		/* A7_SCU power up in SLOT2 */
-		write32(SCU_PUP_SLOT_CONTROL,
-			p->gpc_va_base + GPC_SLT2_CFG);
+			/* A7_SCU power up in SLOT6 */
+			write32(SCU_PUP_SLOT_CONTROL,
+				p->gpc_va_base + GPC_SLT6_CFG);
+		}
 
-		/* A7_C0 power up in SLOT3 */
+		/* A7_C0 power up in SLOT7 */
 		write32(CORE0_A7_PUP_SLOT_CONTROL,
-			p->gpc_va_base + GPC_SLT3_CFG);
-	} else if (power_down_cores) {
-		write32(GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK |
-			GPC_PGC_ACK_SEL_A7_C0_PGC_PDN_ACK,
-			p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+			p->gpc_va_base + GPC_SLT7_CFG);
 
-		/* A7_C0, A7_C1 power down in SLOT0 */
-		write32(CORE0_A7_PDN_SLOT_CONTROL |
-			CORE1_A7_PDN_SLOT_CONTROL,
-			p->gpc_va_base + GPC_SLT0_CFG);
-
-		/* A7_C0 power up in SLOT1 */
-		write32(CORE0_A7_PUP_SLOT_CONTROL,
-			p->gpc_va_base + GPC_SLT1_CFG);
-
+		if (power_down_scu) {
+			write32(GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK |
+				GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK,
+				p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+		} else {
+			write32(GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK |
+				GPC_PGC_ACK_SEL_A7_C0_PGC_PDN_ACK,
+				p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+		}
 	} else {
 		write32(GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK |
 			GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK,
@@ -614,7 +605,7 @@ static int imx7_do_all_off(uint32_t arg)
 		itr_disable(GIT_IRQ); // mask GIT timer interrupt
 		itr_disable(USDHC1_IRQ);
 		itr_disable(GPT4_IRQ);
-		
+
 		gpc_unmask_irq(p, GPT1_IRQ);
 		gpt_schedule_interrupt(5000);
 	}
