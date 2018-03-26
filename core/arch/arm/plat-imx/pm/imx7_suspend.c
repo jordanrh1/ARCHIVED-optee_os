@@ -546,13 +546,13 @@ static int imx7_do_all_off(uint32_t arg)
 	/* power down all cores on LPM request */
 	if (power_down_cores) {
 		val |= GPC_LPCR_A7_AD_EN_C0_PDN; // power down Core0 with LPM
-		val |= GPC_LPCR_A7_AD_EN_C0_PUP;
 		val |= GPC_LPCR_A7_AD_EN_C1_PDN; // power down Core1 with LPM
 	} else {
 		val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;
 		val &= ~GPC_LPCR_A7_AD_EN_C1_PDN; 
 	}
 
+	val |= GPC_LPCR_A7_AD_EN_C0_PUP;
 	val &= ~GPC_LPCR_A7_AD_EN_C0_WFI_PDN; // ignore core WFI
 	val &= ~GPC_LPCR_A7_AD_EN_C0_IRQ_PUP;
 	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP; // not sure abou this
@@ -571,7 +571,7 @@ static int imx7_do_all_off(uint32_t arg)
 	/* shut off the oscillator in DSM */
 	val = 0;
 	//val = 0xe000ffA7;
-	//val |= GPC_SLPCR_EN_DSM;
+	val |= GPC_SLPCR_EN_DSM;
 	//val |= GPC_SLPCR_RBC_EN;
 	//val |= (63 << 24);
 	//val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
@@ -601,18 +601,21 @@ static int imx7_do_all_off(uint32_t arg)
 			p->gpc_va_base + GPC_SLT7_CFG);
 
 		if (power_down_scu) {
-			write32(GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK |
-				GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK,
-				p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+			val = GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK |
+				GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK;
 		} else {
-			write32(GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK |
-				GPC_PGC_ACK_SEL_A7_C0_PGC_PDN_ACK,
-				p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+			val = GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK |
+				GPC_PGC_ACK_SEL_A7_C0_PGC_PDN_ACK;
 		}
+
+		DMSG("GPC_PGC_ACK_SEL_A7 = 0x%x", val);
+		write32(val, p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
 	} else {
-		write32(GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK |
-			GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK,
-			p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+		val = GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK |
+			GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK;
+
+		DMSG("GPC_PGC_ACK_SEL_A7 = 0x%x", val);
+		write32(val, p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
 	}
 
 	/* XXX if we power down fastmix/megamix, need to map
