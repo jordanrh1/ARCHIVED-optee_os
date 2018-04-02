@@ -426,6 +426,9 @@ void gic_dump_state(struct gic_data *gd)
 			     gic_it_get_target(gd, i),
 			     pending != 0,
 			     active != 0);
+
+			(void)pending;
+			(void)active;
 		}
 	}
 	DMSG("Done dumping GIC state");
