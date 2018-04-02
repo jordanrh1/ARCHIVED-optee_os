@@ -387,6 +387,7 @@
 #define GPC_PGC_SCU                     0x880
 
 #define GPC_PGC_PCG_MASK		BIT(0)
+#define GPC_PGC_CORE_PUPSCR             0x7fff80
 
 #define GPC_CPU_PGC_SW_PUP_REQ		0xf0
 #define GPC_PU_PGC_SW_PUP_REQ		0xf8
@@ -424,6 +425,8 @@
 #define GPC_SLT7_CFG                    0xCC
 #define GPC_SLT8_CFG                    0xD0
 #define GPC_SLT9_CFG                    0xD4
+#define GPC_PGC_CPU_MAPPING             0xEC
+#define GPC_PGC_SCU_TIMING              0x890
 
 #define GPC_LPCR_A7_BSC_LPM0            SHIFT_U32(0x3, 0)
 #define GPC_LPCR_A7_BSC_LPM1            SHIFT_U32(0x3, 2)
@@ -451,8 +454,11 @@
 
 #define GPC_SLPCR_EN_DSM                         BIT(31)
 #define GPC_SLPCR_RBC_EN                         BIT(30)
+#define GPC_SLPCR_EN_A7_FASTWUP_WAIT_MODE        BIT(16)
 #define GPC_SLPCR_SBYOS				 BIT(1)
 #define GPC_SLPCR_BYPASS_PMIC_READY              BIT(0)
+
+#define GPC_MLPCR_MEMLP_CTL_DIS                  BIT(0)
 
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK         0x80000000
 #define GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK         0x00008000

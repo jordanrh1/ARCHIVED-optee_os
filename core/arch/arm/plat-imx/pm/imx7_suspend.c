@@ -484,7 +484,7 @@ static int imx7_do_all_off(uint32_t arg)
 	bool power_down_cores = false;
 	bool power_down_scu = false;
 	bool schedule_wakeup = true;
-	bool force_sleep = true;
+	bool force_sleep = false;
 	bool stop_arm_clock = true;
 	int lpm = 1;
 
@@ -527,7 +527,7 @@ static int imx7_do_all_off(uint32_t arg)
 
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C0;
 	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C1;
-	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
+	val |= GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
 
 	val &= ~GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER;
 	DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
@@ -547,12 +547,13 @@ static int imx7_do_all_off(uint32_t arg)
 	if (power_down_cores) {
 		val |= GPC_LPCR_A7_AD_EN_C0_PDN; // power down Core0 with LPM
 		val |= GPC_LPCR_A7_AD_EN_C1_PDN; // power down Core1 with LPM
+		val |= GPC_LPCR_A7_AD_EN_C0_PUP;
 	} else {
 		val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;
 		val &= ~GPC_LPCR_A7_AD_EN_C1_PDN; 
+		val &= ~GPC_LPCR_A7_AD_EN_C0_PUP;
 	}
 
-	val |= GPC_LPCR_A7_AD_EN_C0_PUP;
 	val &= ~GPC_LPCR_A7_AD_EN_C0_WFI_PDN; // ignore core WFI
 	val &= ~GPC_LPCR_A7_AD_EN_C0_IRQ_PUP;
 	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP; // not sure abou this
@@ -568,16 +569,40 @@ static int imx7_do_all_off(uint32_t arg)
 	DMSG("GPC_LPCR_M4 = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_M4);
 
+	/* set mega/fast mix in A7 domain */
+	write32(0x1, p->gpc_va_base + GPC_PGC_CPU_MAPPING);
+
+	/* set SCU timing */
+	write32((0x59 << 10) | 0x5B | (0x2 << 20),
+	         p->gpc_va_base + GPC_PGC_SCU_TIMING);
+
+	/* set C0/C1 power up timing */
+	val = read32(p->gpc_va_base + GPC_PGC_C0_PUPSCR);
+	val &= ~GPC_PGC_CORE_PUPSCR;
+	val |= 0x1A << 7;
+	write32(val, p->gpc_va_base + GPC_PGC_C0_PUPSCR);
+
+	val = read32(p->gpc_va_base + GPC_PGC_C1_PUPSCR);
+	val &= ~GPC_PGC_CORE_PUPSCR;
+	val |= 0x1A << 7;
+	write32(val, p->gpc_va_base + GPC_PGC_C1_PUPSCR);
+
 	/* shut off the oscillator in DSM */
 	val = 0;
+	val |= GPC_SLPCR_EN_A7_FASTWUP_WAIT_MODE;
 	//val = 0xe000ffA7;
-	val |= GPC_SLPCR_EN_DSM;
+	//val |= GPC_SLPCR_EN_DSM;
 	//val |= GPC_SLPCR_RBC_EN;
 	//val |= (63 << 24);
 	//val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
 	//val |= GPC_SLPCR_BYPASS_PMIC_READY;
 	DMSG("GPC_SLPCR = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_SLPCR);
+
+	/* disable memory low power mode */
+	val = read32(p->gpc_va_base + GPC_MLPCR);
+	val |= GPC_MLPCR_MEMLP_CTL_DIS;
+	write32(val, p->gpc_va_base + GPC_MLPCR);
 
 	/* A7_SCU as LPM power down ACK, A7_C0 as LPM power up ack */
 	if (power_down_cores) {
@@ -635,9 +660,6 @@ static int imx7_do_all_off(uint32_t arg)
 	imx_gpcv2_set_core_pgc(power_down_cores, GPC_PGC_C0);
 	imx_gpcv2_set_core_pgc(power_down_cores, GPC_PGC_C1);
 	imx_gpcv2_set_core_pgc(power_down_scu, GPC_PGC_SCU);
-
-	/* change nL2retn/mempwr/dftram to meet SCU power up timing */
-	write32((0x59 << 10) | 0x5B | (0x51 << 20), p->gpc_va_base + 0x890);
 
 	gpc_mask_irq(p, GPR_IRQ);
 
