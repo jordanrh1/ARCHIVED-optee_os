@@ -65,6 +65,21 @@
 
 #define GREEN_LED IMX_GPIO_NR(6, 14)
 
+#define LPM_MODE_MASK               0x3
+#define LPM_MODE_WAIT               0x1
+#define LPM_MODE_STOP               0x2
+#define LPM_STOP_ARM_CLOCK          BIT(2)
+#define LPM_POWER_DOWN_CORES        BIT(3)
+#define LPM_POWER_DOWN_SCU          BIT(4)
+#define LPM_POWER_DOWN_L2           BIT(5)
+#define LPM_SCHEDULE_WAKEUP         BIT(6)
+#define LPM_FORCE_SLEEP             BIT(7)
+
+#define LPM_STATE_CLOCK_GATED       (LPM_MODE_WAIT | LPM_STOP_ARM_CLOCK)
+#define LPM_STATE_ALL_OFF \
+	(LPM_MODE_WAIT | LPM_STOP_ARM_CLOCK | LPM_POWER_DOWN_CORES | \
+	 LPM_POWER_DOWN_SCU | LPM_POWER_DOWN_L2)
+
 struct git_timer_state {
 	uint32_t cntfrq;
 };
@@ -473,31 +488,34 @@ int imx7_core_power_down(uintptr_t entry,
 	return context_id;
 }
 
+static void imx7_set_run_mode(struct imx7_pm_info *p)
+{
+	uint32_t val;
+
+	val = read32(p->gpc_va_base + GPC_LPCR_A7_BSC);
+	val &= ~GPC_LPCR_A7_BSC_LPM0;
+	val &= ~GPC_LPCR_A7_BSC_LPM1;
+	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
+}
+
 //
-// Do actual power down of A7 platform (ALL_OFF mode)
+// Put A7 into LPM mode. The mode and behavior in LPM are controlled by
+// the state flags, which are defined by the LPM_ defines.
 //
-static int imx7_do_all_off(uint32_t arg)
+static int imx7_lpm_entry(uint32_t state)
 {
 	uint32_t val;
 	int core_idx;
-	struct imx7_pm_info *p = (struct imx7_pm_info *)arg;
-	bool power_down_cores = false;
-	bool power_down_scu = false;
-	bool schedule_wakeup = true;
-	bool force_sleep = false;
-	bool stop_arm_clock = true;
-	int lpm = 1;
+	uint32_t suspend_ocram_base = core_mmu_get_va(TRUSTZONE_OCRAM_START +
+						      SUSPEND_OCRAM_OFFSET,
+						      MEM_AREA_TEE_COHERENT);
+	struct imx7_pm_info *p = (struct imx7_pm_info *)suspend_ocram_base;
+	int lpm = state & LPM_MODE_MASK;
 
 	core_idx = get_core_pos();
 
-	// XXX do we need to flush cache? Maybe. Looks like 
-	// sm_pm_cpu_suspend_save flushes L1 cache before calling us.
-	// Looks like core-local state gets saved to stack
-	// XXX we need to flush L2 cache
-
-
 	/* setup resume address in OCRAM and parameter */
-	if (power_down_cores) {
+	if (state & LPM_POWER_DOWN_CORES) {
 		val = ((uint32_t)&resume - (uint32_t)&imx7_suspend) + 
 			p->pa_base + p->pm_info_size;
 
@@ -511,16 +529,19 @@ static int imx7_do_all_off(uint32_t arg)
 
 	// XXX need spinlock around common register
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_BSC);
-	val &= ~GPC_LPCR_A7_BSC_LPM0;	// Set LPM0 to WAIT mode
+	val &= ~GPC_LPCR_A7_BSC_LPM0;
 	val |= lpm;
-	val &= ~GPC_LPCR_A7_BSC_LPM1;   // Set LPM1 to WAIT mode
+	val &= ~GPC_LPCR_A7_BSC_LPM1;
 	val |= (lpm << 2);
-	if (power_down_scu || stop_arm_clock) {
-		assert(stop_arm_clock);
+	if ((state & LPM_POWER_DOWN_SCU) ||
+	    (state & LPM_STOP_ARM_CLOCK)) {
+
+		assert(state & LPM_STOP_ARM_CLOCK);
 		val &= ~GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;
 	} else {
 		val |= GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;
 	}
+
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE0_WFI;
 	val &= ~GPC_LPCR_A7_BSC_MASK_CORE1_WFI;
 	val &= ~GPC_LPCR_A7_BSC_MASK_L2CC_WFI;
@@ -535,16 +556,18 @@ static int imx7_do_all_off(uint32_t arg)
 
 	/* Program A7 advanced power control register */
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_AD);
-	if (power_down_scu) {
-		val |= GPC_LPCR_A7_AD_L2_PGE;	// Power down L2
+	if (state & LPM_POWER_DOWN_SCU) {
 		val |= GPC_LPCR_A7_AD_EN_PLAT_PDN;  // Power down SCU
+		if (state & LPM_POWER_DOWN_L2)
+			val |= GPC_LPCR_A7_AD_L2_PGE;	// Power down L2
 	} else {
+		assert((val & LPM_POWER_DOWN_L2) == 0);
 		val &= ~GPC_LPCR_A7_AD_L2_PGE;
 		val &= ~GPC_LPCR_A7_AD_EN_PLAT_PDN;
 	}
 
 	/* power down all cores on LPM request */
-	if (power_down_cores) {
+	if (state & LPM_POWER_DOWN_CORES) {
 		val |= GPC_LPCR_A7_AD_EN_C0_PDN; // power down Core0 with LPM
 		val |= GPC_LPCR_A7_AD_EN_C1_PDN; // power down Core1 with LPM
 		val |= GPC_LPCR_A7_AD_EN_C0_PUP;
@@ -562,6 +585,8 @@ static int imx7_do_all_off(uint32_t arg)
 
 	DMSG("GPC_LPCR_A7_AD = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
+
+	// XXX all this static stuff should go in setup
 
 	/* program M4 power control register */
 	val = read32(p->gpc_va_base + GPC_LPCR_M4);
@@ -605,13 +630,13 @@ static int imx7_do_all_off(uint32_t arg)
 	write32(val, p->gpc_va_base + GPC_MLPCR);
 
 	/* A7_SCU as LPM power down ACK, A7_C0 as LPM power up ack */
-	if (power_down_cores) {
+	if (state & LPM_POWER_DOWN_CORES) {
 		/* A7_C0, A7_C1 power down in SLOT0 */
 		write32(CORE0_A7_PDN_SLOT_CONTROL |
 			CORE1_A7_PDN_SLOT_CONTROL,
 			p->gpc_va_base + GPC_SLT0_CFG);
 
-		if (power_down_scu) {
+		if (state & LPM_POWER_DOWN_SCU) {
 			/* A7_SCU power down in SLOT3 */
 			write32(SCU_PDN_SLOT_CONTROL,
 				p->gpc_va_base + GPC_SLT3_CFG);
@@ -625,7 +650,7 @@ static int imx7_do_all_off(uint32_t arg)
 		write32(CORE0_A7_PUP_SLOT_CONTROL,
 			p->gpc_va_base + GPC_SLT7_CFG);
 
-		if (power_down_scu) {
+		if (state & LPM_POWER_DOWN_SCU) {
 			val = GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK |
 				GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK;
 		} else {
@@ -643,11 +668,9 @@ static int imx7_do_all_off(uint32_t arg)
 		write32(val, p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
 	}
 
-	/* XXX if we power down fastmix/megamix, need to map
-           MIX PGC to A7 LPM */
 	DMSG("Arming PGC and executing WFI");
 
-	if (schedule_wakeup) {
+	if (state & LPM_SCHEDULE_WAKEUP) {
 		itr_disable(GIT_IRQ); // mask GIT timer interrupt
 		itr_disable(USDHC1_IRQ);
 		itr_disable(GPT4_IRQ);
@@ -657,9 +680,12 @@ static int imx7_do_all_off(uint32_t arg)
 	}
 
 	/* arm PGC for power down */
-	imx_gpcv2_set_core_pgc(power_down_cores, GPC_PGC_C0);
-	imx_gpcv2_set_core_pgc(power_down_cores, GPC_PGC_C1);
-	imx_gpcv2_set_core_pgc(power_down_scu, GPC_PGC_SCU);
+	val = (state & LPM_POWER_DOWN_CORES) != 0;
+	imx_gpcv2_set_core_pgc(val, GPC_PGC_C0);
+	imx_gpcv2_set_core_pgc(val, GPC_PGC_C1);
+
+	val = (state & LPM_POWER_DOWN_SCU) != 0;
+	imx_gpcv2_set_core_pgc(val, GPC_PGC_SCU);
 
 	gpc_mask_irq(p, GPR_IRQ);
 
@@ -667,7 +693,7 @@ static int imx7_do_all_off(uint32_t arg)
 	while (1) {
 		dsb();
 		wfi();
-		if (!force_sleep) break;
+		if ((state & LPM_FORCE_SLEEP) == 0) break;
 		if (val == 0) {
 			gic_dump_state(&gic_data);
 			val = 1;
@@ -680,8 +706,8 @@ static int imx7_do_all_off(uint32_t arg)
 //
 // Power down and clock-gate the entire A7 platform
 //
-int imx7_all_off(uintptr_t entry,
-		        uint32_t context_id, struct sm_nsec_ctx *nsec)
+int imx7_lpm(uint32_t state, uintptr_t entry,
+	     uint32_t context_id, struct sm_nsec_ctx *nsec)
 {
 	uint32_t val;
 	uint32_t core_idx;
@@ -692,22 +718,29 @@ int imx7_all_off(uintptr_t entry,
 	int ret;
 	struct git_timer_state git_state;
 
-	git_timer_save_state(&git_state);
+	if ((state & LPM_POWER_DOWN_CORES) == 0) {
+		imx7_lpm_entry(state);
+		imx7_set_run_mode(p);
+		return PSCI_RET_SUCCESS;
+	}
 
-	// XXX need to save GIT state
+	if (state & LPM_POWER_DOWN_SCU)
+		git_timer_save_state(&git_state);
+		// XXX need to save GIT state
 
 	/* save banked registers for every mode except monitor mode */
 	sm_save_modes_regs(&nsec->mode_regs);
 	
-	ret = sm_pm_cpu_suspend((uint32_t)p, imx7_do_all_off);
+	ret = sm_pm_cpu_suspend(state, imx7_lpm_entry);
 
-	core_idx = get_core_pos();
+	imx7_set_run_mode(p);
 
 	/*
 	 * Whether we did or did not suspend, we need to unarm hardware
 	 *  - reset BSC and AD registers
 	 *  - unarm PGC
 	 */
+	core_idx = get_core_pos();
 	if (core_idx == 0)
 		val = GPC_PGC_C0;
 	else
@@ -715,10 +748,6 @@ int imx7_all_off(uintptr_t entry,
 
 	imx_gpcv2_set_core_pgc(false, val);
 	imx_gpcv2_set_core_pgc(false, GPC_PGC_SCU);
-	// XXX unarm PGC for A7 SCU (0x880)
-	
-
-	// XXX disable LPM
 
 	/*
 	 * Sometimes sm_pm_cpu_suspend may not really suspended,
@@ -731,9 +760,9 @@ int imx7_all_off(uintptr_t entry,
 
 	DMSG("Resume from suspend");
 
-	git_timer_restore_state(&git_state);
-
-	// XXX restore GIC state
+	if (state & LPM_POWER_DOWN_SCU)
+		git_timer_restore_state(&git_state);
+		// XXX restore GIC state
 
 	/* Restore register of different mode in secure world */
 	sm_restore_modes_regs(&nsec->mode_regs);
@@ -741,12 +770,8 @@ int imx7_all_off(uintptr_t entry,
 	nsec->mon_lr = (uint32_t)entry;
 	nsec->mon_spsr = CPSR_MODE_SVC | CPSR_I | CPSR_F;
 
-	//dump_phys_mem(entry);
-	//gic_dump_state(&gic_data);
-
 	return context_id;
 }
-
 
 static int imx7_core_do_wfi(void)
 {
@@ -782,8 +807,10 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		return imx7_core_do_wfi();
 	case MX7_STATE_CORE_POWER_DOWN:
 		return imx7_core_power_down(entry, context_id, nsec);
+	case MX7_STATE_A7_CLOCK_GATED:
+		return imx7_lpm(LPM_STATE_CLOCK_GATED, entry, context_id, nsec);
 	case MX7_STATE_A7_POWER_DOWN:
-		return imx7_all_off(entry, context_id, nsec);
+		return imx7_lpm(LPM_STATE_ALL_OFF, entry, context_id, nsec);
 	default:
 		return PSCI_RET_INVALID_PARAMETERS;
 	}
