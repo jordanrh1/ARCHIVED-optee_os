@@ -273,6 +273,17 @@ void gpc_mask_irq(struct imx7_pm_info *p, uint32_t irq)
 	write32(val, gpc_base + GPC_IMR1_CORE0_A7 + ((irq - 32) / 32) * 4);
 }
 
+void enable_wake_irqs(vaddr_t gpc_va_base)
+{
+	uint32_t irqs[4];
+
+	gic_get_enabled_irqs(&gic_data, irqs);
+	write32(~irqs[0], gpc_va_base + GPC_IMR1_CORE0_A7);
+	write32(~irqs[1], gpc_va_base + GPC_IMR2_CORE0_A7);
+	write32(~irqs[2], gpc_va_base + GPC_IMR3_CORE0_A7);
+	write32(~irqs[3], gpc_va_base + GPC_IMR4_CORE0_A7);
+}
+
 static void dump_phys_mem(uint32_t paddr)
 {
 	int i;
@@ -717,6 +728,8 @@ int imx7_lpm(uint32_t state, uintptr_t entry,
 	struct imx7_pm_info *p = (struct imx7_pm_info *)suspend_ocram_base;
 	int ret;
 	struct git_timer_state git_state;
+
+	enable_wake_irqs(p->gpc_va_base);
 
 	if ((state & LPM_POWER_DOWN_CORES) == 0) {
 		imx7_lpm_entry(state);

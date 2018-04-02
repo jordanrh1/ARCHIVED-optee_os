@@ -397,6 +397,14 @@ static uint32_t __maybe_unused gic_it_get_target(struct gic_data *gd, size_t it)
 	return target;
 }
 
+void gic_get_enabled_irqs(struct gic_data *gd, uint32_t irqs[4])
+{
+	irqs[0] = read32(gd->gicd_base + GICD_ISENABLER(1));
+	irqs[1] = read32(gd->gicd_base + GICD_ISENABLER(2));
+	irqs[2] = read32(gd->gicd_base + GICD_ISENABLER(3));
+	irqs[3] = read32(gd->gicd_base + GICD_ISENABLER(4));
+}
+
 void gic_dump_state(struct gic_data *gd)
 {
 	int i;

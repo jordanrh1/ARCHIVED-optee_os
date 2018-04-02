@@ -57,4 +57,7 @@ void gic_cpu_init(struct gic_data *gd);
 void gic_it_handle(struct gic_data *gd);
 
 void gic_dump_state(struct gic_data *gd);
+
+void gic_get_enabled_irqs(struct gic_data *gd, uint32_t irqs[4]);
+
 #endif /*__DRIVERS_GIC_H*/
