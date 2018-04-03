@@ -74,8 +74,11 @@
 #define LPM_POWER_DOWN_L2           BIT(5)
 #define LPM_SCHEDULE_WAKEUP         BIT(6)
 #define LPM_FORCE_SLEEP             BIT(7)
+#define LPM_SCHEDULE_WATCHDOG       BIT(8)
 
-#define LPM_STATE_CLOCK_GATED       (LPM_MODE_WAIT | LPM_STOP_ARM_CLOCK)
+#define LPM_STATE_CLOCK_GATED       (LPM_MODE_WAIT | LPM_STOP_ARM_CLOCK | \
+				     LPM_SCHEDULE_WATCHDOG)
+
 #define LPM_STATE_CLOCK_GATED_TEST  (LPM_MODE_WAIT | LPM_STOP_ARM_CLOCK | \
 				     LPM_SCHEDULE_WAKEUP)
 
@@ -121,18 +124,18 @@ static void toggle_led(void)
 }
 
 static vaddr_t gpt_base;
+static void gpt_ack_interrupt(void)
+{
+	/* Disable and acknowledge interrupts */
+	write32(0, gpt_base + GPT_IR);
+	write32(0x3f, gpt_base + GPT_SR);
+}
+
 static enum itr_return gpt_itr_cb(struct itr_handler *h)
 {
-	vaddr_t base;
-
-	base = (vaddr_t)phys_to_virt_io(GPT1_BASE);
-
 	DMSG("interrupt fired!");
-//	toggle_led();
 
-	/* Disable and acknowledge interrupts */
-	write32(0, base + GPT_IR);
-	write32(0x3f, base + GPT_SR);
+	gpt_ack_interrupt();
 
 	return ITRR_HANDLED;
 }
@@ -749,6 +752,11 @@ static int imx7_lpm_entry(uint32_t state)
 		gpt_schedule_interrupt(2);
 	}
 
+	if (state & LPM_SCHEDULE_WATCHDOG) {
+		gpc_unmask_irq(p, GPT1_IRQ);
+		gpt_schedule_interrupt(5000);
+	}
+
 	/* arm PGC for power down */
 	if (state & LPM_POWER_DOWN_CORES) {
 		imx_gpcv2_set_core_pgc(true, GPC_PGC_C0);
@@ -773,6 +781,10 @@ static int imx7_lpm_entry(uint32_t state)
 			gic_dump_state(&gic_data);
 			val = 1;
 		}
+	}
+
+	if (state & LPM_SCHEDULE_WATCHDOG) {
+		gpt_ack_interrupt();
 	}
 
 	/* return value ignored by sm_pm_cpu_suspend */
