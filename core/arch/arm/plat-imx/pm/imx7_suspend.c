@@ -76,6 +76,9 @@
 #define LPM_FORCE_SLEEP             BIT(7)
 
 #define LPM_STATE_CLOCK_GATED       (LPM_MODE_WAIT | LPM_STOP_ARM_CLOCK)
+#define LPM_STATE_CLOCK_GATED_TEST  (LPM_MODE_WAIT | LPM_STOP_ARM_CLOCK | \
+				     LPM_SCHEDULE_WAKEUP)
+
 #define LPM_STATE_ALL_OFF \
 	(LPM_MODE_WAIT | LPM_STOP_ARM_CLOCK | LPM_POWER_DOWN_CORES | \
 	 LPM_POWER_DOWN_SCU | LPM_POWER_DOWN_L2)
@@ -273,11 +276,26 @@ void gpc_mask_irq(struct imx7_pm_info *p, uint32_t irq)
 	write32(val, gpc_base + GPC_IMR1_CORE0_A7 + ((irq - 32) / 32) * 4);
 }
 
+bool gpc_irq_pending(struct imx7_pm_info *p, uint32_t irq)
+{
+	uint32_t val;
+	val = read32(p->gpc_va_base + GPC_ISR1_A7 + 
+			((irq - 32) / 32) * 4);
+
+	return (val & (1 << (irq % 32))) != 0;
+}
+
 void enable_wake_irqs(vaddr_t gpc_va_base)
 {
 	uint32_t irqs[4];
 
 	gic_get_enabled_irqs(&gic_data, irqs);
+
+	// Is GPT2 interrupt schedule?
+	//if ((irqs[1] & (1 << 22)) == 0) {
+	//	EMSG("No GPT2 interrupt scheduled!");
+	//}
+
 	write32(~irqs[0], gpc_va_base + GPC_IMR1_CORE0_A7);
 	write32(~irqs[1], gpc_va_base + GPC_IMR2_CORE0_A7);
 	write32(~irqs[2], gpc_va_base + GPC_IMR3_CORE0_A7);
@@ -397,7 +415,6 @@ static int imx7_do_core_power_down(uint32_t arg)
 			itr_disable(USDHC1_IRQ);
 			itr_disable(GPT4_IRQ);
 
-			itr_disable(GPT1_IRQ);
 			gpc_unmask_irq(p, GPT1_IRQ);
 		}
 		gpt_schedule_interrupt(1000);
@@ -503,10 +520,94 @@ static void imx7_set_run_mode(struct imx7_pm_info *p)
 {
 	uint32_t val;
 
+	gpc_unmask_irq(p, GPR_IRQ);
+
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_BSC);
 	val &= ~GPC_LPCR_A7_BSC_LPM0;
 	val &= ~GPC_LPCR_A7_BSC_LPM1;
+	val |= GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
+}
+
+static void imx7_lpm_init(void)
+{
+	uint32_t suspend_ocram_base = core_mmu_get_va(TRUSTZONE_OCRAM_START +
+						      SUSPEND_OCRAM_OFFSET,
+						      MEM_AREA_TEE_COHERENT);
+	struct imx7_pm_info *p = (struct imx7_pm_info *)suspend_ocram_base;
+	uint32_t val;
+
+	/* Program LPCR_A7_BSC */
+	gpc_unmask_irq(p, GPR_IRQ);
+
+	val = read32(p->gpc_va_base + GPC_LPCR_A7_BSC);
+	val &= ~GPC_LPCR_A7_BSC_LPM0;
+	val &= ~GPC_LPCR_A7_BSC_LPM1;
+	val |= GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM;
+	val &= ~GPC_LPCR_A7_BSC_MASK_CORE0_WFI;
+	val &= ~GPC_LPCR_A7_BSC_MASK_CORE1_WFI;
+	val &= ~GPC_LPCR_A7_BSC_MASK_L2CC_WFI;
+	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C0;
+	val &= ~GPC_LPCR_A7_BSC_IRQ_SRC_C1;
+	val |= GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP;
+	val &= ~GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER;
+	DMSG("GPC_LPCR_A7_BSC = 0x%x", val);
+	write32(val, p->gpc_va_base + GPC_LPCR_A7_BSC);
+
+	/* Program A7 advanced power control register */
+	val = read32(p->gpc_va_base + GPC_LPCR_A7_AD);
+	val &= ~GPC_LPCR_A7_AD_L2_PGE;
+	val &= ~GPC_LPCR_A7_AD_EN_PLAT_PDN;
+	val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;
+	val &= ~GPC_LPCR_A7_AD_EN_C1_PDN; 
+	val &= ~GPC_LPCR_A7_AD_EN_C0_PUP;
+	val &= ~GPC_LPCR_A7_AD_EN_C0_WFI_PDN; // ignore core WFI
+	val &= ~GPC_LPCR_A7_AD_EN_C0_IRQ_PUP;
+	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP; // not sure abou this
+	val &= ~GPC_LPCR_A7_AD_EN_C1_WFI_PDN; // ignore core WFI
+	val &= ~GPC_LPCR_A7_AD_EN_C1_IRQ_PUP; // do not power up with IRQ
+	DMSG("GPC_LPCR_A7_AD = 0x%x", val);
+	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
+
+	/* program M4 power control register */
+	val = read32(p->gpc_va_base + GPC_LPCR_M4);
+	val |= GPC_LPCR_M4_MASK_DSM_TRIGGER;
+	DMSG("GPC_LPCR_M4 = 0x%x", val);
+	write32(val, p->gpc_va_base + GPC_LPCR_M4);
+
+	/* set mega/fast mix in A7 domain */
+	write32(0x1, p->gpc_va_base + GPC_PGC_CPU_MAPPING);
+
+	/* set SCU timing */
+	write32((0x59 << 10) | 0x5B | (0x2 << 20),
+	         p->gpc_va_base + GPC_PGC_SCU_TIMING);
+
+	/* set C0/C1 power up timing */
+	val = read32(p->gpc_va_base + GPC_PGC_C0_PUPSCR);
+	val &= ~GPC_PGC_CORE_PUPSCR;
+	val |= 0x1A << 7;
+	write32(val, p->gpc_va_base + GPC_PGC_C0_PUPSCR);
+
+	val = read32(p->gpc_va_base + GPC_PGC_C1_PUPSCR);
+	val &= ~GPC_PGC_CORE_PUPSCR;
+	val |= 0x1A << 7;
+	write32(val, p->gpc_va_base + GPC_PGC_C1_PUPSCR);
+
+	val = 0;
+	val |= GPC_SLPCR_EN_A7_FASTWUP_WAIT_MODE;
+	DMSG("GPC_SLPCR = 0x%x", val);
+	write32(val, p->gpc_va_base + GPC_SLPCR);
+
+	/* disable memory low power mode */
+	val = read32(p->gpc_va_base + GPC_MLPCR);
+	val |= GPC_MLPCR_MEMLP_CTL_DIS;
+	write32(val, p->gpc_va_base + GPC_MLPCR);
+
+	val = GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK |
+		GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK;
+
+	DMSG("GPC_PGC_ACK_SEL_A7 = 0x%x", val);
+	write32(val, p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
 }
 
 //
@@ -567,78 +668,38 @@ static int imx7_lpm_entry(uint32_t state)
 
 	/* Program A7 advanced power control register */
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_AD);
-	if (state & LPM_POWER_DOWN_SCU) {
-		val |= GPC_LPCR_A7_AD_EN_PLAT_PDN;  // Power down SCU
-		if (state & LPM_POWER_DOWN_L2)
-			val |= GPC_LPCR_A7_AD_L2_PGE;	// Power down L2
-	} else {
-		assert((val & LPM_POWER_DOWN_L2) == 0);
-		val &= ~GPC_LPCR_A7_AD_L2_PGE;
-		val &= ~GPC_LPCR_A7_AD_EN_PLAT_PDN;
-	}
+	assert((val & GPC_LPCR_A7_AD_EN_C0_WFI_PDN) == 0);
+	assert((val & GPC_LPCR_A7_AD_EN_C0_IRQ_PUP) == 0);
+	assert((val & GPC_LPCR_A7_AD_EN_C1_PUP) == 0);
+	assert((val & GPC_LPCR_A7_AD_EN_C1_WFI_PDN) == 0);
+	assert((val & GPC_LPCR_A7_AD_EN_C1_IRQ_PUP) == 0);
 
-	/* power down all cores on LPM request */
 	if (state & LPM_POWER_DOWN_CORES) {
 		val |= GPC_LPCR_A7_AD_EN_C0_PDN; // power down Core0 with LPM
 		val |= GPC_LPCR_A7_AD_EN_C1_PDN; // power down Core1 with LPM
 		val |= GPC_LPCR_A7_AD_EN_C0_PUP;
+
+		if (state & LPM_POWER_DOWN_SCU) {
+			val |= GPC_LPCR_A7_AD_EN_PLAT_PDN;  // Power down SCU
+			if (state & LPM_POWER_DOWN_L2)
+				val |= GPC_LPCR_A7_AD_L2_PGE; // L2 powerdown
+		}
+
+		DMSG("GPC_LPCR_A7_AD = 0x%x", val);
+		write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
 	} else {
-		val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;
-		val &= ~GPC_LPCR_A7_AD_EN_C1_PDN; 
-		val &= ~GPC_LPCR_A7_AD_EN_C0_PUP;
+		assert((val & LPM_POWER_DOWN_L2) == 0);
+		assert((val & GPC_LPCR_A7_AD_L2_PGE) == 0);
+		assert((val & GPC_LPCR_A7_AD_EN_PLAT_PDN) == 0);
+		assert((val & GPC_LPCR_A7_AD_EN_C0_PDN) == 0);
+		assert((val & GPC_LPCR_A7_AD_EN_C1_PDN) == 0);
+		assert((val & GPC_LPCR_A7_AD_EN_C0_PUP) == 0);
 	}
 
-	val &= ~GPC_LPCR_A7_AD_EN_C0_WFI_PDN; // ignore core WFI
-	val &= ~GPC_LPCR_A7_AD_EN_C0_IRQ_PUP;
-	val &= ~GPC_LPCR_A7_AD_EN_C1_PUP; // not sure abou this
-	val &= ~GPC_LPCR_A7_AD_EN_C1_WFI_PDN; // ignore core WFI
-	val &= ~GPC_LPCR_A7_AD_EN_C1_IRQ_PUP; // do not power up with IRQ
-
-	DMSG("GPC_LPCR_A7_AD = 0x%x", val);
-	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
-
-	// XXX all this static stuff should go in setup
-
-	/* program M4 power control register */
-	val = read32(p->gpc_va_base + GPC_LPCR_M4);
-	val |= GPC_LPCR_M4_MASK_DSM_TRIGGER;
-	DMSG("GPC_LPCR_M4 = 0x%x", val);
-	write32(val, p->gpc_va_base + GPC_LPCR_M4);
-
-	/* set mega/fast mix in A7 domain */
-	write32(0x1, p->gpc_va_base + GPC_PGC_CPU_MAPPING);
-
-	/* set SCU timing */
-	write32((0x59 << 10) | 0x5B | (0x2 << 20),
-	         p->gpc_va_base + GPC_PGC_SCU_TIMING);
-
-	/* set C0/C1 power up timing */
-	val = read32(p->gpc_va_base + GPC_PGC_C0_PUPSCR);
-	val &= ~GPC_PGC_CORE_PUPSCR;
-	val |= 0x1A << 7;
-	write32(val, p->gpc_va_base + GPC_PGC_C0_PUPSCR);
-
-	val = read32(p->gpc_va_base + GPC_PGC_C1_PUPSCR);
-	val &= ~GPC_PGC_CORE_PUPSCR;
-	val |= 0x1A << 7;
-	write32(val, p->gpc_va_base + GPC_PGC_C1_PUPSCR);
-
-	/* shut off the oscillator in DSM */
 	val = 0;
 	val |= GPC_SLPCR_EN_A7_FASTWUP_WAIT_MODE;
-	//val = 0xe000ffA7;
-	//val |= GPC_SLPCR_EN_DSM;
-	//val |= GPC_SLPCR_RBC_EN;
-	//val |= (63 << 24);
-	//val |= GPC_SLPCR_SBYOS;	// power down on-chip oscillator on DSM
-	//val |= GPC_SLPCR_BYPASS_PMIC_READY;
 	DMSG("GPC_SLPCR = 0x%x", val);
 	write32(val, p->gpc_va_base + GPC_SLPCR);
-
-	/* disable memory low power mode */
-	val = read32(p->gpc_va_base + GPC_MLPCR);
-	val |= GPC_MLPCR_MEMLP_CTL_DIS;
-	write32(val, p->gpc_va_base + GPC_MLPCR);
 
 	/* A7_SCU as LPM power down ACK, A7_C0 as LPM power up ack */
 	if (state & LPM_POWER_DOWN_CORES) {
@@ -672,38 +733,41 @@ static int imx7_lpm_entry(uint32_t state)
 		DMSG("GPC_PGC_ACK_SEL_A7 = 0x%x", val);
 		write32(val, p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
 	} else {
-		val = GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK |
-			GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK;
-
-		DMSG("GPC_PGC_ACK_SEL_A7 = 0x%x", val);
-		write32(val, p->gpc_va_base + GPC_PGC_ACK_SEL_A7);
+		assert(read32(p->gpc_va_base + GPC_PGC_ACK_SEL_A7) ==
+		       (GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK |
+		        GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK));
 	}
 
 	DMSG("Arming PGC and executing WFI");
 
 	if (state & LPM_SCHEDULE_WAKEUP) {
-		itr_disable(GIT_IRQ); // mask GIT timer interrupt
-		itr_disable(USDHC1_IRQ);
-		itr_disable(GPT4_IRQ);
+		//itr_disable(GIT_IRQ); // mask GIT timer interrupt
+		//itr_disable(USDHC1_IRQ);
+		//itr_disable(GPT4_IRQ);
 
 		gpc_unmask_irq(p, GPT1_IRQ);
-		gpt_schedule_interrupt(5000);
+		gpt_schedule_interrupt(2);
 	}
 
 	/* arm PGC for power down */
-	val = (state & LPM_POWER_DOWN_CORES) != 0;
-	imx_gpcv2_set_core_pgc(val, GPC_PGC_C0);
-	imx_gpcv2_set_core_pgc(val, GPC_PGC_C1);
-
-	val = (state & LPM_POWER_DOWN_SCU) != 0;
-	imx_gpcv2_set_core_pgc(val, GPC_PGC_SCU);
+	if (state & LPM_POWER_DOWN_CORES) {
+		imx_gpcv2_set_core_pgc(true, GPC_PGC_C0);
+		imx_gpcv2_set_core_pgc(true, GPC_PGC_C1);
+		if (state & LPM_POWER_DOWN_SCU)
+			imx_gpcv2_set_core_pgc(true, GPC_PGC_SCU);
+	}
 
 	gpc_mask_irq(p, GPR_IRQ);
 
 	val = 0;
 	while (1) {
+		console_putc('+');
+		//if (gpc_irq_pending(p, GPT1_IRQ))
+		//	IMSG("GPT1_IRQ pending!");
+
 		dsb();
 		wfi();
+		console_putc('-');
 		if ((state & LPM_FORCE_SLEEP) == 0) break;
 		if (val == 0) {
 			gic_dump_state(&gic_data);
@@ -753,14 +817,10 @@ int imx7_lpm(uint32_t state, uintptr_t entry,
 	 *  - reset BSC and AD registers
 	 *  - unarm PGC
 	 */
-	core_idx = get_core_pos();
-	if (core_idx == 0)
-		val = GPC_PGC_C0;
-	else
-		val = GPC_PGC_C1;
-
-	imx_gpcv2_set_core_pgc(false, val);
-	imx_gpcv2_set_core_pgc(false, GPC_PGC_SCU);
+	imx_gpcv2_set_core_pgc(false, GPC_PGC_C0);
+	imx_gpcv2_set_core_pgc(false, GPC_PGC_C1);
+	if (state & LPM_POWER_DOWN_SCU)
+		imx_gpcv2_set_core_pgc(false, GPC_PGC_SCU);
 
 	/*
 	 * Sometimes sm_pm_cpu_suspend may not really suspended,
@@ -788,7 +848,7 @@ int imx7_lpm(uint32_t state, uintptr_t entry,
 
 static int imx7_core_do_wfi(void)
 {
-	gpt_schedule_interrupt(5000);
+	//gpt_schedule_interrupt(5000);
 
 	dsb();
 	wfi();
@@ -810,8 +870,9 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 #endif
 
 	if (!suspended_init) {
-		gpt_init();
 		imx7_suspend_init();
+		gpt_init();
+		imx7_lpm_init();
 		suspended_init = 1;
 	}
 
@@ -822,9 +883,14 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		return imx7_core_power_down(entry, context_id, nsec);
 	case MX7_STATE_A7_CLOCK_GATED:
 		return imx7_lpm(LPM_STATE_CLOCK_GATED, entry, context_id, nsec);
+	case (0x80000000 | MX7_STATE_A7_CLOCK_GATED):
+		return imx7_lpm(LPM_STATE_CLOCK_GATED_TEST,
+				entry, context_id, nsec);
+
 	case MX7_STATE_A7_POWER_DOWN:
 		return imx7_lpm(LPM_STATE_ALL_OFF, entry, context_id, nsec);
 	default:
+		EMSG("Unknown state: 0x%x", power_state);
 		return PSCI_RET_INVALID_PARAMETERS;
 	}
 
