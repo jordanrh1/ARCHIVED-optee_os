@@ -45,6 +45,7 @@
 #include <sm/pm.h>
 #include <sm/psci.h>
 #include <stdint.h>
+#include <atomic.h>
 
 #define GPT_USE_32K
 #ifdef GPT_USE_32K
@@ -60,6 +61,7 @@
 #define GIT_IRQ 27
 #define GPR_IRQ 32
 #define GPT1_IRQ (55 + 32)
+#define GPT2_IRQ (54 + 32)
 #define GPT4_IRQ (52 + 32)
 #define USDHC1_IRQ (22 + 32)
 
@@ -90,6 +92,7 @@ struct git_timer_state {
 	uint32_t cntfrq;
 };
 
+uint32_t active_cores = 1;
 extern uint32_t resume;
 static int suspended_init;
 
@@ -124,11 +127,17 @@ static void toggle_led(void)
 }
 
 static vaddr_t gpt_base;
-static void gpt_ack_interrupt(void)
+static bool gpt_ack_interrupt(void)
 {
+	uint32_t val;
+
+	val = read32(gpt_base + GPT_SR);
+
 	/* Disable and acknowledge interrupts */
 	write32(0, gpt_base + GPT_IR);
 	write32(0x3f, gpt_base + GPT_SR);
+
+	return (val & 0x1) != 0;
 }
 
 static enum itr_return gpt_itr_cb(struct itr_handler *h)
@@ -188,6 +197,19 @@ static void gpt_init(void)
 	write32(val, gpt_base + GPT_CR);
 
 	DMSG("Initialized GPT. (GPT_CR=0x%x)", read32(gpt_base + GPT_CR));
+}
+
+static void check_gpt2_pending(void)
+{
+	vaddr_t base = core_mmu_get_va(GPT2_BASE, MEM_AREA_IO_SEC);
+
+	EMSG("GPT2 status. GPT_CR=0x%x, GPT_IR=0x%x, GPT_SR=0x%x, "
+	     "GPT_OCR1=0x%x, GPT_CNT=0x%x",
+		read32(base + GPT_CR),
+		read32(base + GPT_IR),
+		read32(base + GPT_SR),
+		read32(base + GPT_OCR1),
+		read32(base + GPT_CNT));
 }
 
 static void gpt_delay(uint32_t ms)
@@ -629,6 +651,8 @@ static int imx7_lpm_entry(uint32_t state)
 
 	core_idx = get_core_pos();
 
+	enable_wake_irqs(p->gpc_va_base);
+
 	/* setup resume address in OCRAM and parameter */
 	if (state & LPM_POWER_DOWN_CORES) {
 		val = ((uint32_t)&resume - (uint32_t)&imx7_suspend) + 
@@ -784,7 +808,9 @@ static int imx7_lpm_entry(uint32_t state)
 	}
 
 	if (state & LPM_SCHEDULE_WATCHDOG) {
-		gpt_ack_interrupt();
+		if (gpt_ack_interrupt()) {
+			check_gpt2_pending();
+		}
 	}
 
 	/* return value ignored by sm_pm_cpu_suspend */
@@ -804,12 +830,17 @@ int imx7_lpm(uint32_t state, uintptr_t entry,
 	struct imx7_pm_info *p = (struct imx7_pm_info *)suspend_ocram_base;
 	int ret;
 	struct git_timer_state git_state;
-
-	enable_wake_irqs(p->gpc_va_base);
+	
+	if (atomic_dec32(&active_cores) != 0) {
+		atomic_inc32(&active_cores);
+		return PSCI_RET_DENIED;
+	}
 
 	if ((state & LPM_POWER_DOWN_CORES) == 0) {
 		imx7_lpm_entry(state);
 		imx7_set_run_mode(p);
+
+		atomic_inc32(&active_cores);
 		return PSCI_RET_SUCCESS;
 	}
 
@@ -855,6 +886,7 @@ int imx7_lpm(uint32_t state, uintptr_t entry,
 	nsec->mon_lr = (uint32_t)entry;
 	nsec->mon_spsr = CPSR_MODE_SVC | CPSR_I | CPSR_F;
 
+	atomic_inc32(&active_cores);
 	return context_id;
 }
 
@@ -873,14 +905,6 @@ static int imx7_core_do_wfi(void)
 int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		     uint32_t context_id, struct sm_nsec_ctx *nsec)
 {
-#if 0
-	uint32_t suspend_ocram_base = core_mmu_get_va(TRUSTZONE_OCRAM_START +
-						      SUSPEND_OCRAM_OFFSET,
-						      MEM_AREA_TEE_COHERENT);
-	struct imx7_pm_info *p = (struct imx7_pm_info *)suspend_ocram_base;
-	int ret;
-#endif
-
 	if (!suspended_init) {
 		imx7_suspend_init();
 		gpt_init();
@@ -893,53 +917,23 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		return imx7_core_do_wfi();
 	case MX7_STATE_CORE_POWER_DOWN:
 		return imx7_core_power_down(entry, context_id, nsec);
-	case MX7_STATE_A7_CLOCK_GATED:
-		return imx7_lpm(LPM_STATE_CLOCK_GATED, entry, context_id, nsec);
-	case (0x80000000 | MX7_STATE_A7_CLOCK_GATED):
-		return imx7_lpm(LPM_STATE_CLOCK_GATED_TEST,
+
+	case 0x40000001:
+		atomic_dec32(&active_cores);
+		dsb();
+		wfi();
+		atomic_inc32(&active_cores);
+		return PSCI_RET_SUCCESS;
+
+	case 0x41000011:
+		return imx7_lpm(LPM_STATE_CLOCK_GATED,
 				entry, context_id, nsec);
 
 	case MX7_STATE_A7_POWER_DOWN:
-		return imx7_lpm(LPM_STATE_ALL_OFF, entry, context_id, nsec);
+		return imx7_lpm(LPM_STATE_ALL_OFF,
+				entry, context_id, nsec);
 	default:
 		EMSG("Unknown state: 0x%x", power_state);
 		return PSCI_RET_INVALID_PARAMETERS;
 	}
-
-#if 0
-	/* Store non-sec ctx regs */
-	sm_save_modes_regs(&nsec->mode_regs);
-
-	// XXX dump the gpc state
-	gpc_dump_unmasked_irqs(p);
-
-	DMSG("Calling sm_pm_cpu_suspend. suspend_ocram_base=0x%x",
-	     (uint32_t)suspend_ocram_base);
-
-	ret = sm_pm_cpu_suspend((uint32_t)p, (int (*)(uint32_t))
-				(suspend_ocram_base + sizeof(*p)));
-	/*
-	 * Sometimes sm_pm_cpu_suspend may not really suspended,
-	 * we need to check it's return value to restore reg or not
-	 */
-	if (ret < 0) {
-		DMSG("=== Not suspended, GPC IRQ Pending ===\n");
-		return 0;
-	}
-
-	plat_cpu_reset_late();
-
-	/* Restore register of different mode in secure world */
-	sm_restore_modes_regs(&nsec->mode_regs);
-
-	/* Set entry for back to Linux */
-	nsec->mon_lr = (uint32_t)entry;
-	nsec->r0 = context_id;
-
-	main_init_gic();
-
-	DMSG("=== Back from Suspended ===\n");
-
-	return 0;
-#endif
 }

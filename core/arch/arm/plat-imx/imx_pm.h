@@ -149,6 +149,7 @@ void gpc_mask_all_irqs(struct imx7_pm_info *p);
 void gpc_unmask_irq(struct imx7_pm_info *p, uint32_t irq);
 
 extern struct gic_data gic_data;
+extern uint32_t active_cores;
 #endif
 
 #endif
