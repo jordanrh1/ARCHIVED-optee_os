@@ -619,6 +619,7 @@ standby_out:
 	/* return to suspend finish */
 	bx	lr
 
+.global resume
 resume:
 	write_iciallu
 	write_bpiall
@@ -644,6 +645,7 @@ resume:
 	str	r7, [r11, #MX7_SRC_GPR2]
 
 	mov	r5, #0x1
+	b	dsm_ddr_retention_out /* XXX */
 
 	ldr	r11, [r0, #PM_INFO_MX7_GPC_P_OFF]
 	ldr	r7, [r11, #GPC_PGC_FM]

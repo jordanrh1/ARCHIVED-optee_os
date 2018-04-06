@@ -43,7 +43,7 @@ void sm_pm_cpu_suspend_save(struct sm_pm_ctx *ctx, uint32_t sp)
 
 	sm_pm_cpu_do_suspend(ctx->suspend_regs);
 
-	dcache_op_level1(DCACHE_OP_CLEAN_INV);
+	cache_op_inner(DCACHE_CLEAN_INV, NULL, 0);
 
 #ifdef CFG_PL310
 	arm_cl2_cleanbyway(core_mmu_get_va(PL310_BASE, MEM_AREA_IO_SEC));
