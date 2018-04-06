@@ -63,6 +63,10 @@
 
 #define CORE_PUPSCR_SW2ISO		(0x1A << 7)
 
+struct git_timer_state {
+	uint32_t cntfrq;
+};
+
 static int suspended_init;
 
 static int imx7_cpu_suspend_to_ocram(uint32_t power_state __unused,
@@ -99,6 +103,16 @@ static int imx7_cpu_suspend_to_ocram(uint32_t power_state __unused,
 	DMSG("=== Back from Suspended ===\n");
 
 	return 0;
+}
+
+static void git_timer_save_state(struct git_timer_state *state)
+{
+	state->cntfrq = read_cntfrq();
+}
+
+static void git_timer_restore_state(struct git_timer_state *state)
+{
+	write_cntfrq(state->cntfrq);
 }
 
 static void enable_wake_irqs(struct imx7_pm_info *p)
@@ -349,17 +363,59 @@ static int imx7_lpm_entry(uint32_t lpm_flags)
 	return 0;
 }
 
-/* Enter low power mode using the specified options */
-static int imx7_lpm(uint32_t lpm_flags, uintptr_t entry __unused,
-	     uint32_t context_id __unused, struct sm_nsec_ctx *nsec __unused)
+static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
+	uintptr_t entry,
+	uint32_t context_id,
+	struct sm_nsec_ctx *nsec)
 {
+	int ret;
+	struct git_timer_state git_state;
+
+	assert(lpm_flags & LPM_POWER_DOWN_CORES);
+
+	git_timer_save_state(&git_state);
+
+	/* save banked registers for every mode except monitor mode */
+	sm_save_modes_regs(&nsec->mode_regs);
+	
+	ret = sm_pm_cpu_suspend(lpm_flags, imx7_lpm_entry);
+
+	/* whether we did or did not suspend, we need to unarm hardware */
+	/* XXX if we actually suspended, don't these bits clear themselves? */
+	if (lpm_flags & LPM_INITIATING_CORE) {
+		imx_gpcv2_set_core_pgc(false, GPC_PGC_C0);
+		imx_gpcv2_set_core_pgc(false, GPC_PGC_C1);
+		if (lpm_flags & LPM_POWER_DOWN_SCU)
+			imx_gpcv2_set_core_pgc(false, GPC_PGC_SCU);
+	}
+	
+	if (ret != 0) {
+		DMSG("=== Core did not power down ===");
+		return PSCI_RET_SUCCESS;
+	}
+	
+	plat_cpu_reset_late();
+
+	/* Restore register of different mode in secure world */
+	sm_restore_modes_regs(&nsec->mode_regs);
+
+	git_timer_restore_state(&git_state);
+	main_init_gic();
+
+	nsec->mon_lr = (uint32_t)entry;
+	nsec->mon_spsr = CPSR_MODE_SVC | CPSR_I | CPSR_F;
+
+	DMSG("Back from power down");
+	return context_id;
+}
+
+/* Enter low power mode using the specified options */
+static int imx7_lpm(uint32_t lpm_flags, uintptr_t entry,
+	     uint32_t context_id, struct sm_nsec_ctx *nsec)
+{
+	int ret;
 	uint32_t val;
 	struct imx7_pm_info *p = pm_info;
-
-	if ((lpm_flags & LPM_POWER_DOWN_CORES) != 0) {
-		EMSG("Context-losing state not implemented");
-		return PSCI_RET_NOT_SUPPORTED;
-	}
 
 	val = atomic_dec32(&active_cores);
 	if ((lpm_flags & LPM_INITIATING_CORE) && (val != 0)) {
@@ -367,13 +423,19 @@ static int imx7_lpm(uint32_t lpm_flags, uintptr_t entry __unused,
 		return PSCI_RET_DENIED;
 	}
 
-	imx7_lpm_entry(lpm_flags);
+	if (lpm_flags & LPM_POWER_DOWN_CORES) {
+		ret = imx7_do_context_losing_lpm(lpm_flags, entry,
+			context_id, nsec);
+	} else {
+		imx7_lpm_entry(lpm_flags);
+		ret = PSCI_RET_SUCCESS;
+	}
 
 	if (lpm_flags & LPM_INITIATING_CORE)
 		imx7_set_run_mode(p);
 
 	atomic_inc32(&active_cores);
-	return PSCI_RET_SUCCESS;
+	return ret;
 }
 
 int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
@@ -409,6 +471,18 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 
 		return imx7_lpm(LPM_STATE_CLOCK_GATED | LPM_INITIATING_CORE,
 				entry, context_id, nsec);
+
+	case 0x41000055:
+		return imx7_lpm(
+			LPM_MODE_WAIT |
+			LPM_STOP_ARM_CLOCK |
+			LPM_POWER_DOWN_CORES |
+			LPM_POWER_DOWN_SCU |
+			LPM_POWER_DOWN_L2 |
+			LPM_INITIATING_CORE,
+			entry,
+			context_id,
+			nsec);
 
 	default:
 		EMSG("Unknown state: 0x%x", power_state);
