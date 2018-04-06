@@ -363,6 +363,7 @@ static int imx7_lpm_entry(uint32_t lpm_flags)
 	return 0;
 }
 
+bool wait = false;
 static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 	uintptr_t entry,
 	uint32_t context_id,
@@ -393,19 +394,22 @@ static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 		DMSG("=== Core did not power down ===");
 		return PSCI_RET_SUCCESS;
 	}
-	
-	plat_cpu_reset_late();
+
+	plat_cpu_reset_late();	
+	git_timer_restore_state(&git_state);
 
 	/* Restore register of different mode in secure world */
 	sm_restore_modes_regs(&nsec->mode_regs);
 
-	git_timer_restore_state(&git_state);
 	main_init_gic();
 
 	nsec->mon_lr = (uint32_t)entry;
 	nsec->mon_spsr = CPSR_MODE_SVC | CPSR_I | CPSR_F;
 
-	DMSG("Back from power down");
+	DMSG("Back from power down. (entry=0x%x, context_id=0x%x)",
+		(uint32_t)entry, context_id);
+
+	while (wait);
 	return context_id;
 }
 
