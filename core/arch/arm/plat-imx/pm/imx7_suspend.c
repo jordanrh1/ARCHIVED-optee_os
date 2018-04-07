@@ -255,17 +255,19 @@ static void imx7_prepare_lpm(uint32_t lpm_flags, struct imx7_pm_info *p)
 			val |= GPC_LPCR_A7_AD_EN_PLAT_PDN;
 			if (lpm_flags & LPM_POWER_DOWN_L2)
 				val |= GPC_LPCR_A7_AD_L2_PGE;
+		} else {
+			val &= ~GPC_LPCR_A7_AD_L2_PGE;
+			val &= ~GPC_LPCR_A7_AD_EN_PLAT_PDN;
 		}
-
-		write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
 	} else {
-		assert((lpm_flags & LPM_POWER_DOWN_L2) == 0);
-		assert((val & GPC_LPCR_A7_AD_L2_PGE) == 0);
-		assert((val & GPC_LPCR_A7_AD_EN_PLAT_PDN) == 0);
-		assert((val & GPC_LPCR_A7_AD_EN_C0_PDN) == 0);
-		assert((val & GPC_LPCR_A7_AD_EN_C1_PDN) == 0);
-		assert((val & GPC_LPCR_A7_AD_EN_C0_PUP) == 0);
+		val &= ~GPC_LPCR_A7_AD_L2_PGE;
+		val &= ~GPC_LPCR_A7_AD_EN_PLAT_PDN;
+		val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;
+		val &= ~GPC_LPCR_A7_AD_EN_C1_PDN;
+		val &= ~GPC_LPCR_A7_AD_EN_C0_PUP;
 	}
+
+	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
 
 	/* A7_SCU as LPM power down ACK, A7_C0 as LPM power up ack */
 	if (lpm_flags & LPM_POWER_DOWN_CORES) {
@@ -353,7 +355,12 @@ static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 
 	assert(lpm_flags & LPM_POWER_DOWN_CORES);
 
+	console_putc('+');
+
 	git_timer_save_state(&git_state);
+
+	if (lpm_flags & LPM_POWER_DOWN_SCU)
+		gic_save_state(&gic_data);
 
 	/* save banked registers for every mode except monitor mode */
 	sm_save_modes_regs(&nsec->mode_regs);
@@ -374,21 +381,22 @@ static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 		return PSCI_RET_SUCCESS;
 	}
 
-	plat_cpu_reset_late();	
 	git_timer_restore_state(&git_state);
 
 	/* Restore register of different mode in secure world */
 	sm_restore_modes_regs(&nsec->mode_regs);
 
-	main_init_gic();
+	//main_init_gic();
+	if (lpm_flags & LPM_POWER_DOWN_SCU)
+		gic_restore_state(&gic_data);
 
 	nsec->mon_lr = (uint32_t)entry;
 	nsec->mon_spsr = CPSR_MODE_SVC | CPSR_I | CPSR_F;
 
-	DMSG("Back from power down. (entry=0x%x, context_id=0x%x)",
-		(uint32_t)entry, context_id);
-
-	while (wait);
+	//DMSG("Back from power down. (entry=0x%x, context_id=0x%x)",
+	//	(uint32_t)entry, context_id);
+	
+	console_putc('-');
 	return context_id;
 }
 
@@ -460,12 +468,26 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 			LPM_MODE_WAIT |
 			LPM_STOP_ARM_CLOCK |
 			LPM_POWER_DOWN_CORES |
-			LPM_POWER_DOWN_SCU |
-			LPM_POWER_DOWN_L2 |
+			//LPM_POWER_DOWN_SCU |
+			//LPM_POWER_DOWN_L2 |
 			LPM_INITIATING_CORE,
 			entry,
 			context_id,
 			nsec);
+
+	case 0x41000155:
+		for (;;) {
+			imx7_lpm(
+				LPM_MODE_WAIT |
+				LPM_STOP_ARM_CLOCK |
+				LPM_POWER_DOWN_CORES |
+				//LPM_POWER_DOWN_SCU |
+				//LPM_POWER_DOWN_L2 |
+				LPM_INITIATING_CORE,
+				entry,
+				context_id,
+				nsec);
+		}
 
 	default:
 		EMSG("Unknown state: 0x%x", power_state);
