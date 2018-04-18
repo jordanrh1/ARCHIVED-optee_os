@@ -405,7 +405,8 @@ void crypto_hash_free_ctx(void *ctx, uint32_t algo __unused)
 	 * Check that it's a supported algo, or crypto_hash_alloc_ctx()
 	 * could never have succeded above.
 	 */
-	assert(!hash_get_ctx_size(algo, &ctx_size));
+	if (ctx)
+		assert(!hash_get_ctx_size(algo, &ctx_size));
 	free(ctx);
 }
 
@@ -492,12 +493,11 @@ TEE_Result crypto_hash_final(void *ctx, uint32_t algo, uint8_t *digest,
 
 #if defined(_CFG_CRYPTO_WITH_ACIPHER)
 
-#define LTC_MAX_BITS_PER_VARIABLE   (4096)
 #define LTC_VARIABLE_NUMBER         (50)
 
 #define LTC_MEMPOOL_U32_SIZE \
 	mpa_scratch_mem_size_in_U32(LTC_VARIABLE_NUMBER, \
-				    LTC_MAX_BITS_PER_VARIABLE)
+				    CFG_CORE_BIGNUM_MAX_BITS)
 
 #if defined(CFG_WITH_PAGER)
 #include <mm/tee_pager.h>
@@ -653,7 +653,7 @@ static void tee_ltc_alloc_mpa(void)
 
 	pool = get_mpa_scratch_memory_pool(&size_pool);
 	init_mpa_tomcrypt(pool);
-	mpa_init_scratch_mem_sync(pool, size_pool, LTC_MAX_BITS_PER_VARIABLE,
+	mpa_init_scratch_mem_sync(pool, size_pool, CFG_CORE_BIGNUM_MAX_BITS,
 				  get_pool, put_pool, &pool_sync);
 
 	mpa_set_random_generator(crypto_rng_read);
@@ -718,7 +718,7 @@ void crypto_bignum_clear(struct bignum *s)
 
 static bool bn_alloc_max(struct bignum **s)
 {
-	size_t sz = mpa_StaticVarSizeInU32(LTC_MAX_BITS_PER_VARIABLE) *
+	size_t sz = mpa_StaticVarSizeInU32(CFG_CORE_BIGNUM_MAX_BITS) *
 			sizeof(uint32_t) * 8;
 
 	*s = crypto_bignum_allocate(sz);
@@ -836,7 +836,7 @@ static TEE_Result rsadorep(rsa_key *ltc_key, const uint8_t *src,
 	 * required size of the out buffer without doing a partial decrypt.
 	 * We know the upper bound though.
 	 */
-	blen = (mpa_StaticTempVarSizeInU32(LTC_MAX_BITS_PER_VARIABLE)) *
+	blen = (mpa_StaticTempVarSizeInU32(CFG_CORE_BIGNUM_MAX_BITS)) *
 	       sizeof(uint32_t);
 	buf = malloc(blen);
 	if (!buf) {
@@ -2012,7 +2012,8 @@ void crypto_cipher_free_ctx(void *ctx, uint32_t algo __maybe_unused)
 	 * Check that it's a supported algo, or crypto_cipher_alloc_ctx()
 	 * could never have succeded above.
 	 */
-	assert(!cipher_get_ctx_size(algo, &ctx_size));
+	if (ctx)
+		assert(!cipher_get_ctx_size(algo, &ctx_size));
 	free(ctx);
 }
 
@@ -2364,7 +2365,8 @@ void crypto_mac_free_ctx(void *ctx, uint32_t algo __maybe_unused)
 	 * Check that it's a supported algo, or crypto_mac_alloc_ctx()
 	 * could never have succeded above.
 	 */
-	assert(!mac_get_ctx_size(algo, &ctx_size));
+	if (ctx)
+		assert(!mac_get_ctx_size(algo, &ctx_size));
 	free(ctx);
 }
 

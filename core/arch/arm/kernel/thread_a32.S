@@ -29,8 +29,8 @@
 
 #include <arm32_macros.S>
 #include <arm.h>
-#include <asm-defines.h>
 #include <asm.S>
+#include <generated/asm-defines.h>
 #include <keep.h>
 #include <kernel/abort.h>
 #include <kernel/thread_defs.h>
@@ -457,47 +457,21 @@ UNWIND(	.fnend)
 END_FUNC thread_rpc
 KEEP_PAGER thread_rpc
 
+/*
+ * unsigned long thread_smc(unsigned long func_id, unsigned long a1,
+ *			    unsigned long a2, unsigned long a3)
+ */
+FUNC thread_smc , :
+UNWIND(	.fnstart)
+	smc	#0
+	bx	lr
+UNWIND(	.fnend)
+END_FUNC thread_smc
+
 FUNC thread_init_vbar , :
 UNWIND(	.fnstart)
 	/* Set vector (VBAR) */
-#ifdef CFG_CORE_WORKAROUND_SPECTRE_BP_SEC
-	/*
-	 * For unrecognized CPUs we fall back to the vector used for
-	 * unaffected CPUs. Cortex A-15 has special treatment compared to
-	 * the other affected Cortex CPUs.
-	 */
-	read_midr r1
-	ubfx	r2, r1, #MIDR_IMPLEMENTER_SHIFT, #MIDR_IMPLEMENTER_WIDTH
-	cmp	r2, #MIDR_IMPLEMENTER_ARM
-	bne	1f
-
-	ubfx	r2, r1, #MIDR_PRIMARY_PART_NUM_SHIFT, \
-			#MIDR_PRIMARY_PART_NUM_WIDTH
-
-	movw	r3, #CORTEX_A8_PART_NUM
-	cmp	r2, r3
-	movwne	r3, #CORTEX_A9_PART_NUM
-	cmpne	r2, r3
-	movwne	r3, #CORTEX_A17_PART_NUM
-	cmpne	r2, r3
-	movwne	r3, #CORTEX_A57_PART_NUM
-	cmpne	r2, r3
-	movwne	r3, #CORTEX_A72_PART_NUM
-	cmpne	r2, r3
-	movwne	r3, #CORTEX_A73_PART_NUM
-	cmpne	r2, r3
-	movwne	r3, #CORTEX_A75_PART_NUM
-	cmpne	r2, r3
-	ldreq	r0, =exception_vector_bpiall
-	beq	2f
-
-	movw	r3, #CORTEX_A15_PART_NUM
-	cmp	r2, r3
-	ldreq	r0, =exception_vector_a15
-	beq	2f
-#endif
-1:	ldr	r0, =thread_vect_table
-2:	write_vbar r0
+	write_vbar r0
 	bx	lr
 UNWIND(	.fnend)
 END_FUNC thread_init_vbar
@@ -765,9 +739,9 @@ END_FUNC thread_unwind_user_mode
 	b	.	/* SMC should not return */
 .endm
 
-	.section .text.thread_vect_table
+	.section .text.thread_excp_vect
         .align	5
-FUNC thread_vect_table , :
+FUNC thread_excp_vect , :
 UNWIND(	.fnstart)
 UNWIND(	.cantunwind)
 	b	.			/* Reset			*/
@@ -805,13 +779,16 @@ UNWIND(	.cantunwind)
 	.endm
 
         .align	5
-exception_vector_a15:
+	.global thread_excp_vect_workaround_a15
+thread_excp_vect_workaround_a15:
 	vector_prologue_spectre
 	mrs	r0, spsr
 	cmp_spsr_user_mode r0
 	bne	1f
 	/*
 	 * Invalidate the branch predictor for the current processor.
+	 * For Cortex-A8 ACTLR[6] has to be set to 1 for BPIALL to be
+	 * effective.
 	 * Note that the BPIALL instruction is not effective in
 	 * invalidating the branch predictor on Cortex-A15. For that CPU,
 	 * set ACTLR[0] to 1 during early processor initialisation, and
@@ -824,7 +801,8 @@ exception_vector_a15:
 	b	1f
 
         .align	5
-exception_vector_bpiall:
+	.global thread_excp_vect_workaround
+thread_excp_vect_workaround:
 	vector_prologue_spectre
 	mrs	r0, spsr
 	cmp_spsr_user_mode r0
@@ -1060,4 +1038,6 @@ eret_to_user_mode:
 
 	movs	pc, lr
 UNWIND(	.fnend)
-END_FUNC thread_vect_table
+	.global thread_excp_vect_end
+thread_excp_vect_end:
+END_FUNC thread_excp_vect

@@ -29,8 +29,8 @@
 
 #include <arm32_macros.S>
 #include <arm.h>
-#include <asm-defines.h>
 #include <asm.S>
+#include <generated/asm-defines.h>
 #include <keep.h>
 #include <kernel/unwind.h>
 #include <sm/optee_smc.h>
@@ -163,6 +163,10 @@ UNWIND(	.cantunwind)
 	read_scr r0
 	orr	r0, r0, #(SCR_NS | SCR_FIQ) /* Set NS and FIQ bit in SCR */
 	write_scr r0
+	/*
+	 * isb not needed since we're doing an exception return below
+	 * without dependency to the changes in SCR before that.
+	 */
 
 	add	sp, sp, #(SM_CTX_NSEC + SM_NSEC_CTX_R0)
 	b	.sm_exit
@@ -177,6 +181,7 @@ UNWIND(	.cantunwind)
 
 	bic	r1, r1, #(SCR_NS | SCR_FIQ) /* Clear NS and FIQ bit in SCR */
 	write_scr r1
+	isb
 
 	add	r0, sp, #(SM_CTX_NSEC + SM_NSEC_CTX_R8)
 	stm	r0, {r8-r12}
@@ -226,6 +231,7 @@ UNWIND(	.cantunwind)
 	read_scr r1
 	bic	r1, r1, #(SCR_NS | SCR_FIQ) /* Clear NS and FIQ bit in SCR */
 	write_scr r1
+	isb
 
 	/* Save non-secure context */
 	add	r0, sp, #SM_CTX_NSEC
@@ -286,6 +292,8 @@ sm_vect_table_a15:
 	vector_prologue_spectre
 	/*
 	 * Invalidate the branch predictor for the current processor.
+	 * For Cortex-A8 ACTLR[6] has to be set to 1 for BPIALL to be
+	 * effective.
 	 * Note that the BPIALL instruction is not effective in
 	 * invalidating the branch predictor on Cortex-A15. For that CPU,
 	 * set ACTLR[0] to 1 during early processor initialisation, and

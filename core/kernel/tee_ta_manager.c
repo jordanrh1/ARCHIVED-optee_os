@@ -525,7 +525,7 @@ static TEE_Result tee_ta_init_session(TEE_ErrorOrigin *err,
 			goto out;
 	}
 
-	/* Look for static TA */
+	/* Look for pseudo TA */
 	res = tee_ta_init_pseudo_ta_session(uuid, s);
 	if (res == TEE_SUCCESS || res != TEE_ERROR_ITEM_NOT_FOUND)
 		goto out;
@@ -642,8 +642,11 @@ TEE_Result tee_ta_invoke_command(TEE_ErrorOrigin *err,
 	}
 
 	tee_ta_clear_busy(sess->ctx);
-	if (res != TEE_SUCCESS)
+
+	/* Short buffer is not an effective error case */
+	if (res != TEE_SUCCESS && res != TEE_ERROR_SHORT_BUFFER)
 		DMSG("Error: %x of %d\n", res, *err);
+
 	return res;
 }
 
@@ -707,7 +710,7 @@ static void update_current_ctx(struct thread_specific_data *tsd)
 	 * if ctx->mmu != NULL we must have user mapping active.
 	 */
 	if (((ctx && is_user_ta_ctx(ctx) ?
-			to_user_ta_ctx(ctx)->mmu : NULL) == NULL) ==
+			to_user_ta_ctx(ctx)->vm_info : NULL) == NULL) ==
 					core_mmu_user_mapping_is_active())
 		panic("unexpected active mapping");
 }

@@ -52,7 +52,10 @@
 
 #include "core_mmu_private.h"
 
-#define RES_VASPACE_SIZE	(CORE_MMU_PGDIR_SIZE * 10)
+#ifndef DEBUG_XLAT_TABLE
+#define DEBUG_XLAT_TABLE 0
+#endif
+
 #define SHM_VASPACE_SIZE	(1024 * 1024 * 32)
 
 /*
@@ -222,7 +225,6 @@ static bool pbuf_is_special_mem(paddr_t pbuf, size_t len,
 	return false;
 }
 
-#ifdef CFG_DT
 static void carve_out_phys_mem(struct core_mmu_phys_mem **mem, size_t *nelems,
 			       paddr_t pa, size_t size)
 {
@@ -350,14 +352,6 @@ static bool get_discovered_nsec_ddr(const struct core_mmu_phys_mem **start,
 
 	return true;
 }
-#else /*!CFG_DT*/
-static bool
-get_discovered_nsec_ddr(const struct core_mmu_phys_mem **start __unused,
-			const struct core_mmu_phys_mem **end __unused)
-{
-	return false;
-}
-#endif /*!CFG_DT*/
 
 static bool pbuf_is_nsec_ddr(paddr_t pbuf, size_t len)
 {
@@ -705,6 +699,59 @@ static void dump_mmap_table(struct tee_mmap_region *memory_map)
 	}
 }
 
+#if DEBUG_XLAT_TABLE
+
+static void dump_xlat_table(vaddr_t va, int level)
+{
+	struct core_mmu_table_info tbl_info;
+	unsigned int idx = 0;
+	paddr_t pa;
+	uint32_t attr;
+
+	core_mmu_find_table(va, level, &tbl_info);
+	va = tbl_info.va_base;
+	for (idx = 0; idx < tbl_info.num_entries; idx++) {
+		core_mmu_get_entry(&tbl_info, idx, &pa, &attr);
+		if (attr || level > 1) {
+			if (attr & TEE_MATTR_TABLE) {
+#ifdef CFG_WITH_LPAE
+				DMSG_RAW("%*s [LVL%d] VA:0x%010" PRIxVA
+					" TBL:0x%010" PRIxPA "\n",
+					level * 2, "", level, va, pa);
+#else
+				DMSG_RAW("%*s [LVL%d] VA:0x%010" PRIxVA
+					" TBL:0x%010" PRIxPA " %s\n",
+					level * 2, "", level, va, pa,
+					attr & TEE_MATTR_SECURE ? " S" : "NS");
+#endif
+				dump_xlat_table(va, level + 1);
+			} else if (attr) {
+				DMSG_RAW("%*s [LVL%d] VA:0x%010" PRIxVA
+					" PA:0x%010" PRIxPA " %s-%s-%s-%s",
+					level * 2, "", level, va, pa,
+					attr & (TEE_MATTR_CACHE_CACHED <<
+					TEE_MATTR_CACHE_SHIFT) ? "MEM" : "DEV",
+					attr & TEE_MATTR_PW ? "RW" : "RO",
+					attr & TEE_MATTR_PX ? "X " : "XN",
+					attr & TEE_MATTR_SECURE ? " S" : "NS");
+			} else {
+				DMSG_RAW("%*s [LVL%d] VA:0x%010" PRIxVA
+					    " INVALID\n",
+					    level * 2, "", level, va);
+			}
+		}
+		va += 1 << tbl_info.shift;
+	}
+}
+
+#else
+
+static void dump_xlat_table(vaddr_t va __unused, int level __unused)
+{
+}
+
+#endif
+
 static void add_pager_vaspace(struct tee_mmap_region *mmap, size_t num_elems,
 			      vaddr_t begin, vaddr_t *end, size_t *last)
 {
@@ -780,7 +827,7 @@ static void init_mem_map(struct tee_mmap_region *memory_map, size_t num_elems)
 				 &__end_phys_nsec_ddr_section, "NSEC DDR");
 
 	add_va_space(memory_map, num_elems, MEM_AREA_RES_VASPACE,
-		     RES_VASPACE_SIZE, &last);
+		     CFG_RESERVED_VASPACE_SIZE, &last);
 
 	add_va_space(memory_map, num_elems, MEM_AREA_SHM_VASPACE,
 		     SHM_VASPACE_SIZE, &last);
@@ -866,10 +913,6 @@ static void init_mem_map(struct tee_mmap_region *memory_map, size_t num_elems)
 			map->attr = core_mmu_type_to_attr(map->type);
 			va -= map->size;
 			va = ROUNDDOWN(va, map->region_size);
-#if !defined(CFG_WITH_LPAE)
-			/* Mapping does not yet support sharing L2 tables */
-			va = ROUNDDOWN(va, CORE_MMU_PGDIR_SIZE);
-#endif
 			map->va = va;
 		}
 	} else {
@@ -887,10 +930,6 @@ static void init_mem_map(struct tee_mmap_region *memory_map, size_t num_elems)
 #endif
 			map->attr = core_mmu_type_to_attr(map->type);
 			va = ROUNDUP(va, map->region_size);
-#if !defined(CFG_WITH_LPAE)
-			/* Mapping does not yet support sharing L2 tables */
-			va = ROUNDUP(va, CORE_MMU_PGDIR_SIZE);
-#endif
 			map->va = va;
 			va += map->size;
 		}
@@ -959,6 +998,7 @@ void core_init_mmu_map(void)
 	}
 
 	core_init_mmu_tables(static_memory_map);
+	dump_xlat_table(0x0, 1);
 }
 
 bool core_mmu_mattr_is_ok(uint32_t mattr)
@@ -1245,7 +1285,7 @@ static void set_region(struct core_mmu_table_info *tbl_info,
 }
 
 static void set_pg_region(struct core_mmu_table_info *dir_info,
-			struct tee_ta_region *region, struct pgt **pgt,
+			struct vm_region *region, struct pgt **pgt,
 			struct core_mmu_table_info *pg_info)
 {
 	struct tee_mmap_region r = {
@@ -1302,6 +1342,85 @@ static void set_pg_region(struct core_mmu_table_info *dir_info,
 	}
 }
 
+static bool can_map_at_level(paddr_t paddr, vaddr_t vaddr,
+			     size_t size_left, paddr_t block_size,
+			     struct tee_mmap_region *mm __maybe_unused)
+{
+
+	/* VA and PA are aligned to block size at current level */
+	if ((vaddr | paddr) & (block_size - 1))
+		return false;
+
+	/* Remainder fits into block at current level */
+	if (size_left < block_size)
+		return false;
+
+#ifdef CFG_WITH_PAGER
+	/*
+	 * If pager is enabled, we need to map tee ram
+	 * regions with small pages only
+	 */
+	if (map_is_tee_ram(mm) && block_size != SMALL_PAGE_SIZE)
+		return false;
+#endif
+
+	return true;
+}
+
+void core_mmu_map_region(struct tee_mmap_region *mm)
+{
+	struct core_mmu_table_info tbl_info;
+	unsigned int idx;
+	vaddr_t vaddr = mm->va;
+	paddr_t paddr = mm->pa;
+	ssize_t size_left = mm->size;
+	int level;
+	bool table_found;
+	uint32_t old_attr;
+
+	assert(!((vaddr | paddr) & SMALL_PAGE_MASK));
+
+	while (size_left > 0) {
+		level = 1;
+
+		while (true) {
+			assert(level <= CORE_MMU_PGDIR_LEVEL);
+
+			table_found = core_mmu_find_table(vaddr, level,
+							  &tbl_info);
+			if (!table_found)
+				panic("can't find table for mapping");
+
+			idx = core_mmu_va2idx(&tbl_info, vaddr);
+
+			if (!can_map_at_level(paddr, vaddr, size_left,
+					      1 << tbl_info.shift, mm)) {
+				/*
+				 * This part of the region can't be mapped at
+				 * this level. Need to go deeper.
+				 */
+				if (!core_mmu_entry_to_finer_grained(&tbl_info,
+					      idx, mm->attr & TEE_MATTR_SECURE))
+					panic("Can't divide MMU entry");
+				level++;
+				continue;
+			}
+
+			/* We can map part of the region at current level */
+			core_mmu_get_entry(&tbl_info, idx, NULL, &old_attr);
+			if (old_attr)
+				panic("Page is already mapped");
+
+			core_mmu_set_entry(&tbl_info, idx, paddr, mm->attr);
+			paddr += 1 << tbl_info.shift;
+			vaddr += 1 << tbl_info.shift;
+			size_left -= 1 << tbl_info.shift;
+
+			break;
+		}
+	}
+}
+
 TEE_Result core_mmu_map_pages(vaddr_t vstart, paddr_t *pages, size_t num_pages,
 			      enum teecore_memtypes memtype)
 {
@@ -1343,8 +1462,8 @@ TEE_Result core_mmu_map_pages(vaddr_t vstart, paddr_t *pages, size_t num_pages,
 				break;
 
 			/* This is supertable. Need to divide it. */
-			if (!core_mmu_prepare_small_page_mapping(&tbl_info, idx,
-								 secure))
+			if (!core_mmu_entry_to_finer_grained(&tbl_info, idx,
+							     secure))
 				panic("Failed to spread pgdir on small tables");
 		}
 
@@ -1405,36 +1524,29 @@ void core_mmu_populate_user_map(struct core_mmu_table_info *dir_info,
 	struct core_mmu_table_info pg_info;
 	struct pgt_cache *pgt_cache = &thread_get_tsd()->pgt_cache;
 	struct pgt *pgt;
-	size_t n;
+	struct vm_region *r;
+	struct vm_region *r_last;
 
-	/* Find the last valid entry */
-	n = ARRAY_SIZE(utc->mmu->regions);
-	while (true) {
-		n--;
-		if (utc->mmu->regions[n].size)
-			break;
-		if (!n)
-			return;	/* Nothing to map */
-	}
+	/* Find the first and last valid entry */
+	r = TAILQ_FIRST(&utc->vm_info->regions);
+	if (!r)
+		return; /* Nothing to map */
+	r_last = TAILQ_LAST(&utc->vm_info->regions, vm_region_head);
 
 	/*
 	 * Allocate all page tables in advance.
 	 */
-	pgt_alloc(pgt_cache, &utc->ctx, utc->mmu->regions[0].va,
-		  utc->mmu->regions[n].va + utc->mmu->regions[n].size - 1);
+	pgt_alloc(pgt_cache, &utc->ctx, r->va,
+		  r_last->va + r_last->size - 1);
 	pgt = SLIST_FIRST(pgt_cache);
 
 	core_mmu_set_info_table(&pg_info, dir_info->level + 1, 0, NULL);
 
-	for (n = 0; n < ARRAY_SIZE(utc->mmu->regions); n++)
-		mobj_update_mapping(utc->mmu->regions[n].mobj, utc,
-				    utc->mmu->regions[n].va);
+	TAILQ_FOREACH(r, &utc->vm_info->regions, link)
+		mobj_update_mapping(r->mobj, utc, r->va);
 
-	for (n = 0; n < ARRAY_SIZE(utc->mmu->regions); n++) {
-		if (!utc->mmu->regions[n].size)
-			continue;
-		set_pg_region(dir_info, utc->mmu->regions + n, &pgt, &pg_info);
-	}
+	TAILQ_FOREACH(r, &utc->vm_info->regions, link)
+		set_pg_region(dir_info, r, &pgt, &pg_info);
 }
 
 bool core_mmu_add_mapping(enum teecore_memtypes type, paddr_t addr, size_t len)
@@ -1465,6 +1577,11 @@ bool core_mmu_add_mapping(enum teecore_memtypes type, paddr_t addr, size_t len)
 	granule = 1 << tbl_info.shift;
 	p = ROUNDDOWN(addr, granule);
 	l = ROUNDUP(len + addr - p, granule);
+
+	/* Ban overflowing virtual addresses */
+	if (map->size < l)
+		return false;
+
 	/*
 	 * Something is wrong, we can't fit the va range into the selected
 	 * table. The reserved va range is possibly missaligned with

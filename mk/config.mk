@@ -64,7 +64,16 @@ CFG_TEE_CORE_TA_TRACE ?= y
 # feature.
 CFG_TEE_CORE_USER_MEM_DEBUG ?= 1
 
-# If y, enable memory leak detection feature in bget memory allocator.
+# If y, enable the memory leak detection feature in the bget memory allocator.
+# When this feature is enabled, calling mdbg_check(1) will print a list of all
+# the currently allocated buffers and the location of the allocation (file and
+# line number).
+# Note: make sure the log level is high enough for the messages to show up on
+# the secure console! For instance:
+# - To debug user-mode (TA) allocations: build OP-TEE *and* the TA with:
+#   $ make CFG_TEE_TA_MALLOC_DEBUG=y CFG_TEE_TA_LOG_LEVEL=3
+# - To debug TEE core allocations: build OP-TEE with:
+#   $ make CFG_TEE_CORE_MALLOC_DEBUG=y CFG_TEE_CORE_LOG_LEVEL=3
 CFG_TEE_CORE_MALLOC_DEBUG ?= n
 CFG_TEE_TA_MALLOC_DEBUG ?= n
 
@@ -106,7 +115,7 @@ endif
 # with limited depth not including any tag, so there is really no guarantee
 # that TEE_IMPL_VERSION contains the major and minor revision numbers.
 CFG_OPTEE_REVISION_MAJOR ?= 3
-CFG_OPTEE_REVISION_MINOR ?= 0
+CFG_OPTEE_REVISION_MINOR ?= 1
 
 # Trusted OS implementation manufacturer name
 CFG_TEE_MANUFACTURER ?= LINARO
@@ -233,7 +242,7 @@ CFG_DT ?= n
 # editing of the supplied DTB.
 CFG_DTB_MAX_SIZE ?= 0x10000
 
-# Enable static TA and core self tests
+# Enable core self tests and related pseudo TAs
 CFG_TEE_CORE_EMBED_INTERNAL_TESTS ?= y
 
 # This option enables OP-TEE to respond to SMP boot request: the Rich OS
@@ -295,3 +304,16 @@ CFG_DYN_SHM_CAP ?= y
 # Enables support for larger physical addresses, that is, it will define
 # paddr_t as a 64-bit type.
 CFG_CORE_LARGE_PHYS_ADDR ?= n
+
+# Define the maximum size, in bits, for big numbers in the Internal Core API
+# Arithmetical functions. This does *not* influence the key size that may be
+# manipulated through the Cryptographic API.
+# Set this to a lower value to reduce the TA memory footprint.
+CFG_TA_BIGNUM_MAX_BITS ?= 2048
+
+# Define the maximum size, in bits, for big numbers in the TEE core (privileged
+# layer).
+# This value is an upper limit for the key size in any cryptographic algorithm
+# implemented by the TEE core.
+# Set this to a lower value to reduce the memory footprint.
+CFG_CORE_BIGNUM_MAX_BITS ?= 4096

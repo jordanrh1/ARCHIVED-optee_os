@@ -124,6 +124,7 @@
  * MEM_AREA_RES_VASPACE: Reserved virtual memory space
  * MEM_AREA_SHM_VASPACE: Virtual memory space for dynamic shared memory buffers
  * MEM_AREA_TA_VASPACE: TA va space, only used with phys_to_virt()
+ * MEM_AREA_DDR_OVERALL: Overall DDR address range, candidate to dynamic shm.
  * MEM_AREA_MAXTYPE:  lower invalid 'type' value
  */
 enum teecore_memtypes {
@@ -145,6 +146,7 @@ enum teecore_memtypes {
 	MEM_AREA_TA_VASPACE,
 	MEM_AREA_PAGER_VASPACE,
 	MEM_AREA_SDP_MEM,
+	MEM_AREA_DDR_OVERALL,
 	MEM_AREA_MAXTYPE
 };
 
@@ -169,6 +171,7 @@ static inline const char *teecore_memtype_name(enum teecore_memtypes type)
 		[MEM_AREA_TA_VASPACE] = "TA_VASPACE",
 		[MEM_AREA_PAGER_VASPACE] = "PAGER_VASPACE",
 		[MEM_AREA_SDP_MEM] = "SDP_MEM",
+		[MEM_AREA_DDR_OVERALL] = "DDR_OVERALL"
 	};
 
 	COMPILE_TIME_ASSERT(ARRAY_SIZE(names) == MEM_AREA_MAXTYPE);
@@ -244,9 +247,14 @@ struct core_mmu_phys_mem {
 			__unused
 #endif
 
-#define register_nsec_ddr(addr, size) \
+#define register_dynamic_shm(addr, size) \
 		__register_memory1(#addr, MEM_AREA_RAM_NSEC, (addr), (size), \
 				   phys_nsec_ddr_section, __COUNTER__)
+
+#define register_ddr(addr, size) \
+		__register_memory1(#addr, MEM_AREA_DDR_OVERALL, (addr), \
+				   (size), phys_ddr_overall_section,\
+				   __COUNTER__)
 
 /* Default NSec shared memory allocated from NSec world */
 extern unsigned long default_nsec_shm_paddr;
@@ -384,15 +392,15 @@ bool core_mmu_find_table(vaddr_t va, unsigned max_level,
 		struct core_mmu_table_info *tbl_info);
 
 /*
- * core_mmu_prepare_small_page_mapping() - prepare target small page parent
- *	pgdir so that each of its entry can be used to map a page.
+ * core_mmu_entry_to_finer_grained() - divide mapping at current level into
+ *     smaller ones so memory can be mapped with finer granularity
  * @tbl_info:	table where target record located
  * @idx:	index of record for which a pdgir must be setup.
  * @secure:	true/false if pgdir maps secure/non-secure memory (32bit mmu)
  * @return true on successful, false on error
  */
-bool core_mmu_prepare_small_page_mapping(struct core_mmu_table_info *tbl_info,
-					 unsigned int idx, bool secure);
+bool core_mmu_entry_to_finer_grained(struct core_mmu_table_info *tbl_info,
+				     unsigned int idx, bool secure);
 
 void core_mmu_set_entry_primitive(void *table, size_t level, size_t idx,
 				  paddr_t pa, uint32_t attr);
@@ -568,10 +576,8 @@ void map_memarea_sections(const struct tee_mmap_region *mm, uint32_t *ttb);
  */
 bool core_mmu_nsec_ddr_is_defined(void);
 
-#ifdef CFG_DT
 void core_mmu_set_discovered_nsec_ddr(struct core_mmu_phys_mem *start,
 				      size_t nelems);
-#endif
 
 #ifdef CFG_SECURE_DATA_PATH
 /* Alloc and fill SDP memory objects table - table is NULL terminated */

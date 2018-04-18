@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
  * Copyright (C) 2015 Freescale Semiconductor, Inc.
- * All rights reserved.
  * Copyright (c) 2016, Wind River Systems.
  * All rights reserved.
  * Copyright (c) 2017, Microsoft.
@@ -369,6 +368,11 @@
 #define SRC_A7RCR1			0x008
 #define SRC_A7RCR0_A7_CORE_RESET0_OFFSET	0
 #define SRC_A7RCR1_A7_CORE1_ENABLE_OFFSET	1
+
+#define SNVS_LPCR_OFF			0x38
+#define SNVS_LPCR_TOP_MASK		BIT(6)
+#define SNVS_LPCR_DP_EN_MASK		BIT(5)
+#define SNVS_LPCR_SRTC_ENV_MASK		1
 
 #define WCR_OFF				0
 

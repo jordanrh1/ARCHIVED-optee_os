@@ -8,7 +8,7 @@ mx6sx-flavorlist = mx6sxsabreauto
 mx6d-flavorlist = mx6dhmbedge
 mx6dl-flavorlist = mx6dlsabresd mx6dlhmbedge
 mx6s-flavorlist = mx6shmbedge
-mx7-flavorlist = mx7dsabresd mx7dclsom
+mx7-flavorlist = mx7dsabresd mx7swarp7 mx7dclsom
 
 ifneq (,$(filter $(PLATFORM_FLAVOR),$(mx6ul-flavorlist)))
 $(call force,CFG_MX6UL,y)
@@ -42,6 +42,14 @@ else ifneq (,$(filter $(PLATFORM_FLAVOR),mx7dclsom))
 CFG_DDR_SIZE ?= 0x40000000
 CFG_PSCI_ARM32 ?= y
 CFG_TEE_CORE_NB_CORE ?= 2
+endif
+
+ifneq (,$(filter $(PLATFORM_FLAVOR),mx7swarp7))
+CFG_DDR_SIZE ?= 0x20000000
+CFG_DT ?= y
+CFG_NS_ENTRY_ADDR ?= 0x80800000
+CFG_PSCI_ARM32 ?= y
+CFG_TEE_CORE_NB_CORE ?= 1
 endif
 
 # Common i.MX6 config

@@ -87,6 +87,8 @@
 
 /* Only valid for Cortex-A15 */
 #define ACTLR_CA15_ENABLE_INVALIDATE_BTB	BIT(0)
+/* Only valid for Cortex-A8 */
+#define ACTLR_CA8_ENABLE_INVALIDATE_BTB		BIT(6)
 
 #define ACTLR_SMP	BIT32(6)
 
@@ -177,6 +179,17 @@
 #define IDPFR1_GENTIMER_MASK         (0xF << IDPFR1_GENTIMER_SHIFT)
 
 #ifndef ASM
+static inline uint32_t read_midr(void)
+{
+	uint32_t midr;
+
+	asm volatile ("mrc	p15, 0, %[midr], c0, c0, 0"
+			: [midr] "=r" (midr)
+	);
+
+	return midr;
+}
+
 static inline uint32_t read_mpidr(void)
 {
 	uint32_t mpidr;
