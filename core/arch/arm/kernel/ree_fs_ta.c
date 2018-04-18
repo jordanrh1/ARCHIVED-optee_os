@@ -29,6 +29,9 @@ struct user_ta_store_handle {
 	struct shdr *shdr; /* Verified secure copy of @nw_ta's signed header */
 	void *hash_ctx;
 	uint32_t hash_algo;
+#ifdef CFG_CYREP
+	void *sha256_ctx;
+#endif
 };
 
 /*
@@ -92,6 +95,9 @@ static TEE_Result ta_open(const TEE_UUID *uuid,
 	uint64_t cookie = 0;
 	TEE_Result res;
 	size_t offs;
+#ifdef CFG_CYREP
+	void *sha256_ctx = NULL;
+#endif
 
 	handle = calloc(1, sizeof(*handle));
 	if (!handle)
@@ -135,6 +141,17 @@ static TEE_Result ta_open(const TEE_UUID *uuid,
 		goto error_free_hash;
 	offs = SHDR_GET_SIZE(shdr);
 
+#ifdef CFG_CYREP
+	// set up sha256 context
+	res = crypto_hash_alloc_ctx(&sha256_ctx, TEE_ALG_SHA256);
+	if (res != TEE_SUCCESS)
+		goto error_free_hash;
+
+	res = crypto_hash_init(sha256_ctx, TEE_ALG_SHA256);
+	if (res != TEE_SUCCESS)
+		goto error_free_hash;
+#endif
+
 	if (shdr->img_type == SHDR_BOOTSTRAP_TA) {
 		TEE_UUID bs_uuid;
 		struct shdr_bootstrap_ta bs_hdr;
@@ -174,6 +191,9 @@ static TEE_Result ta_open(const TEE_UUID *uuid,
 	handle->offs = offs;
 	handle->hash_algo = hash_algo;
 	handle->hash_ctx = hash_ctx;
+#ifdef CFG_CYREP
+	handle->sha256_ctx = sha256_ctx;
+#endif
 	handle->shdr = shdr;
 	handle->mobj = mobj;
 	*h = handle;
@@ -181,6 +201,10 @@ static TEE_Result ta_open(const TEE_UUID *uuid,
 
 error_free_hash:
 	crypto_hash_free_ctx(hash_ctx, hash_algo);
+#ifdef CFG_CYREP
+	if (sha256_ctx)
+		crypto_hash_free_ctx(sha256_ctx, TEE_ALG_SHA256);
+#endif
 error_free_payload:
 	thread_rpc_free_payload(cookie, mobj);
 error:
@@ -233,6 +257,13 @@ static TEE_Result ta_read(struct user_ta_store_handle *h, void *data,
 	res = crypto_hash_update(h->hash_ctx, h->hash_algo, dst, len);
 	if (res != TEE_SUCCESS)
 		return TEE_ERROR_SECURITY;
+
+#ifdef CFG_CYREP
+	res = crypto_hash_update(h->sha256_ctx, TEE_ALG_SHA256, dst, len);
+	if (res != TEE_SUCCESS)
+		return TEE_ERROR_SECURITY;
+#endif
+
 	h->offs += len;
 	if (h->offs == h->nw_ta_size) {
 		/*
@@ -249,10 +280,33 @@ static void ta_close(struct user_ta_store_handle *h)
 	if (!h)
 		return;
 	thread_rpc_free_payload(h->cookie, h->mobj);
+#ifdef CFG_CYREP
+	crypto_hash_free_ctx(h->sha256_ctx, TEE_ALG_SHA256);
+#endif
 	free(h->hash_ctx);
 	free(h->shdr);
 	free(h);
 }
+
+#ifdef CFG_CYREP
+static TEE_Result ta_get_hash(
+	struct user_ta_store_handle *h,
+	uint8_t *hash,
+	size_t hash_len
+	)
+{
+	// This can only be called after the whole image has been read
+	if (h->offs != h->nw_ta_size) {
+		return TEE_ERROR_BAD_STATE;
+	}
+
+	return crypto_hash_final(
+		h->sha256_ctx,
+		TEE_ALG_SHA256,
+		hash,
+		hash_len);
+}
+#endif
 
 static struct user_ta_store_ops ops = {
 	.description = "REE",
@@ -260,6 +314,9 @@ static struct user_ta_store_ops ops = {
 	.get_size = ta_get_size,
 	.read = ta_read,
 	.close = ta_close,
+#ifdef CFG_CYREP
+	.get_hash = ta_get_hash,
+#endif
 	.priority = 10,
 };
 

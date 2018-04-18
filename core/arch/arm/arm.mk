@@ -64,6 +64,8 @@ ifeq ($(CFG_ARM32_core),y)
 # CFG_PAGEABLE_ADDR: if defined, forces pageable data physical address.
 # CFG_NS_ENTRY_ADDR: if defined, forces NS World physical entry address.
 # CFG_DT_ADDR:       if defined, forces Device Tree data physical address.
+# CFG_CYREP:         if defined, CyReP subsystem is enabled.
+# CFG_SKIP_L2_INIT:  if defined, do not enable L2 when OPTEE first runs
 endif
 
 core-platform-cppflags	+= -I$(arch-dir)/include

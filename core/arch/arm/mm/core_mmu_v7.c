@@ -631,7 +631,12 @@ void core_mmu_get_user_va_range(vaddr_t *base, size_t *size)
 	}
 
 	if (size)
+#if (CFG_TEE_LOAD_ADDR < 0x02000000) && defined(CFG_WITH_PAGER) && \
+     !defined(CFG_WITH_USER_TA)
+		*size = 0x00800000;
+#else
 		*size = (NUM_UL1_ENTRIES - 1) << SECTION_SHIFT;
+#endif
 }
 
 void core_mmu_get_user_map(struct core_mmu_user_map *map)

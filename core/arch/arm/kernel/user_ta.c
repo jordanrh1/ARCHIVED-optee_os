@@ -323,6 +323,17 @@ static TEE_Result ta_load(const TEE_UUID *uuid,
 	TAILQ_INSERT_TAIL(&tee_ctxes, &utc->ctx, link);
 	*ta_ctx = &utc->ctx;
 
+#ifdef CFG_CYREP
+	res = ta_store->get_hash(
+		ta_handle,
+		utc->ta_image_sha256,
+		sizeof(utc->ta_image_sha256));
+
+	if (res != TEE_SUCCESS) {
+		goto error_return;
+	}	
+#endif
+
 	tee_mmu_set_ctx(NULL);
 	ta_store->close(ta_handle);
 	return TEE_SUCCESS;

@@ -3,6 +3,8 @@
  * Copyright (C) 2015 Freescale Semiconductor, Inc.
  * Copyright (c) 2016, Wind River Systems.
  * All rights reserved.
+ * Copyright (c) 2017, Microsoft.
+ * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -72,6 +74,7 @@
 
 #define GIC_BASE			0x00A00000
 #define GICD_OFFSET			0x1000
+#define GPIO_BASE			0x0209C000
 
 #if defined(CFG_MX6UL) || defined(CFG_MX6ULL)
 #define GICC_OFFSET			0x2000
@@ -79,20 +82,55 @@
 #define CAAM_BASE			0x02140000
 #else
 #define GICC_OFFSET			0x100
+#if defined(CFG_CYREP)
+#define CAAM_BASE			0x00100000
+#else
 #define CAAM_BASE			0x02100000
+#endif
+#endif
+
+#if defined(CFG_MX6Q)
+#define ATZ1_BASE_ADDR			AIPS1_BASE
+#define ATZ2_BASE_ADDR			AIPS2_BASE
+
+#define AIPS1_OFF_BASE_ADDR		(ATZ1_BASE_ADDR + 0x80000)
+#define AIPS2_OFF_BASE_ADDR		(ATZ2_BASE_ADDR + 0x80000)
+
+#define IP2APB_TZASC1_BASE_ADDR		(AIPS2_OFF_BASE_ADDR + 0x50000)
 #endif
 
 #define GIC_CPU_BASE			(GIC_BASE + GICC_OFFSET)
 #define GIC_DIST_BASE			(GIC_BASE + GICD_OFFSET)
 
 /* Central Security Unit register values */
+
+/*
+ * Grant R+W access:
+ * - Just to TZ Supervisor execution mode, and
+ * - Just to a single device
+ */
+#define CSU_TZ_SUPERVISOR		0x22
+
+/*
+ * Grant R+W access:
+ * - To all execution modes, and
+ * - To a single device
+ */
+#define CSU_ALL_MODES			0xFF
+
+/*
+ * Grant R+W access:
+ * - To all execution modes, and
+ * - To both devices sharing a single CSU_CSL register
+ */
+#define CSU_ACCESS_ALL			((CSU_ALL_MODES << 16) | (CSU_ALL_MODES << 0))
+
 #define CSU_BASE			0x021C0000
 #define CSU_CSL_START			0x0
 #define CSU_CSL_END			0xA0
 #define CSU_CSL5			0x14
 #define CSU_CSL15			0x3C
 #define CSU_CSL16			0x40
-#define	CSU_ACCESS_ALL			0x00FF00FF
 #define CSU_SETTING_LOCK		0x01000100
 
 /* Used in suspend/resume and low power idle */
@@ -132,6 +170,44 @@
 #define IOMUXC_GPR10_OCRAM_TZ_ADDR_LOCK_OFFSET_6UL	(27)
 #define IOMUXC_GPR10_OCRAM_TZ_ADDR_LOCK_MASK_6UL	GENMASK_32(31, 27)
 
+/* CCM */
+
+/* Clock enabled except in STOP mode */
+#define IMX_CGR_CLK_ENABLED 0x3
+#define IMX_CCM_CCGR1_ECSPI2_CLK_SHIFT 2
+/* ECSPI2 clock enabled */
+#define IMX_CCM_CCGR1_ECSPI2_CLK_ENABLED  \
+    (IMX_CGR_CLK_ENABLED << IMX_CCM_CCGR1_ECSPI2_CLK_SHIFT) 
+
+/* GPIO */
+#define IMX_GPIO_PORTS              7
+#define IMX_GPIO_PORT_GRANULARITY   0x4000
+#define IMX_GPIO_REGISTER_BITS      32
+
+/* ECSPI */
+#define MXC_ECSPI1_BASE_ADDR        (ATZ1_BASE_ADDR + 0x08000)
+#define MXC_ECSPI_BUS_COUNT         5
+#define MXC_ECSPI_BUS_GRANULARITY   0x4000
+
+#define MXC_CSPICON_POL		4
+#define MXC_CSPICON_PHA		0
+#define MXC_CSPICON_SSPOL	12
+
+#define MXC_CSPICTRL_EN		        (1 << 0)
+#define MXC_CSPICTRL_MODE	        (1 << 1)
+#define MXC_CSPICTRL_XCH	        (1 << 2)
+#define MXC_CSPICTRL_MODE_MASK      (0xf << 4)
+#define MXC_CSPICTRL_CHIPSELECT(x)	(((x) & 0x3) << 12)
+#define MXC_CSPICTRL_BITCOUNT(x)	(((x) & 0xfff) << 20)
+#define MXC_CSPICTRL_PREDIV(x)	    (((x) & 0xF) << 12)
+#define MXC_CSPICTRL_POSTDIV(x)	    (((x) & 0xF) << 8)
+#define MXC_CSPICTRL_SELCHAN(x)	    (((x) & 0x3) << 18)
+#define MXC_CSPICTRL_MAXBITS	    0xfff
+#define MXC_CSPICTRL_TC		        (1 << 7)
+#define MXC_CSPICTRL_RXOVF	        (1 << 6)
+#define MXC_CSPIPERIOD_32KHZ	    (1 << 15)
+#define MXC_MAX_SPI_BYTES	        32
+
 #if defined(CFG_MX6UL) || defined(CFG_MX6ULL) || defined(CFG_MX6SX)
 #define DRAM0_BASE			0x80000000
 #else
@@ -144,7 +220,11 @@
 #define GICC_OFFSET		0x2000
 #define GICD_OFFSET		0x1000
 
+#if defined(CFG_CYREP)
+#define CAAM_BASE		0x00100000
+#else
 #define CAAM_BASE		0x30900000
+#endif
 #define UART1_BASE		0x30860000
 #define UART2_BASE		0x30890000
 #define UART3_BASE		0x30880000
@@ -155,6 +235,9 @@
 #define AIPS2_SIZE		0x400000
 #define AIPS3_BASE		0x30800000
 #define AIPS3_SIZE		0x400000
+
+#define GPIO_BASE		0x30200000
+#define GPIO_SIZE		0x70000
 
 #define WDOG_BASE		0x30280000
 #define LPSR_BASE		0x30270000
@@ -173,13 +256,33 @@
 #define IRAM_BASE		0x00900000
 #define IRAM_S_BASE		0x00180000
 
+/*
+ * Grant R+W access:
+ * - Just to TZ Supervisor execution mode, and
+ * - Just to a single device
+ */
+#define CSU_TZ_SUPERVISOR		0x22
+
+/*
+ * Grant R+W access:
+ * - To all execution modes, and
+ * - To a single device
+ */
+#define CSU_ALL_MODES			0xFF
+
+/*
+ * Grant R+W access:
+ * - To all execution modes, and
+ * - To both devices sharing a single CSU_CSL register
+ */
+#define CSU_ACCESS_ALL			((CSU_ALL_MODES << 16) | (CSU_ALL_MODES << 0))
+
 #define CSU_CSL_START		0x303E0000
 #define CSU_CSL_END		0x303E0100
 #define CSU_CSL_59		(0x303E0000 + 59 * 4)
 #define CSU_CSL_28		(0x303E0000 + 28 * 4)
 #define CSU_CSL_15		(0x303E0000 + 15 * 4)
 #define CSU_CSL_12		(0x303E0000 + 12 * 4)
-#define	CSU_ACCESS_ALL		0x00FF00FF
 #define CSU_SETTING_LOCK	0x01000100
 
 #define TRUSTZONE_OCRAM_START	0x180000
@@ -197,12 +300,57 @@
 #define IOMUXC_GPR11_OCRAM_S_TZ_EN_LOCK_OFFSET		26
 #define IOMUXC_GPR11_OCRAM_S_TZ_EN_LOCK_MASK		GENMASK_32(26, 26)
 #define IOMUXC_GPR11_OCRAM_S_TZ_ADDR_LOCK_OFFSET	GENMASK_32(29, 27)
+
 #else
 #error "CFG_MX6/7 not defined"
 #endif
 
+/* SNVS */
+#define SNVS_HPLR			0x00000000
+#define SNVS_HPCOMR			0x00000004
+#define SNVS_HPCR			0x00000008
+#define SNVS_HPSICR			0x0000000C
+#define SNVS_HPSVCR			0x00000010
+#define SNVS_HPSR			0x00000014
+#define SNVS_HPSVSR			0x00000018
+#define SNVS_HPHACIVR			0x0000001C
+#define SNVS_HPHACR			0x00000020
+#define SNVS_HPRTCMR			0x00000024
+#define SNVS_HPRTCLR			0x00000028
+#define SNVS_HPTAMR			0x0000002C
+#define SNVS_HPTALR			0x00000030
+#define SNVS_LPLR			0x00000034
+#define SNVS_LPCR			0x00000038
+#define SNVS_LPMKCR			0x0000003C
+#define SNVS_LPSVCR			0x00000040
+#define SNVS_LPTGFCR			0x00000044
+#define SNVS_LPTDCR			0x00000048
+#define SNVS_LPSR			0x0000004C
+#define SNVS_LPSRTCMR			0x00000050
+#define SNVS_LPSRTCLR			0x00000054
+#define SNVS_LPTAR			0x00000058
+#define SNVS_LPSMCMR			0x0000005C
+#define SNVS_LPSMCLR			0x00000060
+#define SNVS_LPPGDR			0x00000064
+#define SNVS_LPGPR			0x00000068
+#define SNVS_LPZMK			0x0000006C
+#define SNVS_HPVIDR1			0x00000BF8
+#define SNVS_HPVIDR2			0x00000BFC
+
+#define SNVS_LPPGDR_INIT		0x41736166
+
+#define SNVS_LPCR_DP_EN			(1u << 5)
+#define SNVS_LPCR_TOP			(1u << 6)
+
+#define SNVS_LPSR_PGD			(1u << 3)
+
+#define IOMUXC_GPR1_OFFSET	0x04
 #define IOMUXC_GPR4_OFFSET	0x10
 #define IOMUXC_GPR5_OFFSET	0x14
+
+#define IOMUXC_GPR1_IRQ		BIT(12)
+#define GPR_IRQ			32
+
 #define ARM_WFI_STAT_MASK(n)	BIT(n)
 
 #define ARM_WFI_STAT_MASK_7D(n)	BIT(25 + ((n) & 1))
@@ -215,6 +363,7 @@
 #define SRC_SCR_CPU_ENABLE_ALL		SHIFT_U32(0x7, 22)
 
 #define SRC_GPR1_MX7			0x074
+#define SRC_GPR2_MX7			0x078
 #define SRC_A7RCR0			0x004
 #define SRC_A7RCR1			0x008
 #define SRC_A7RCR0_A7_CORE_RESET0_OFFSET	0
@@ -232,14 +381,100 @@
 #define OFFSET_DIGPROG_IMX7D		0x800
 
 /* GPC V2 */
+#define GPC_PGC_C0			0x800
+#define GPC_PGC_C0_PUPSCR		0x804
 #define GPC_PGC_C1			0x840
 #define GPC_PGC_C1_PUPSCR		0x844
+#define GPC_PGC_SCU			0x880
 
 #define GPC_PGC_PCG_MASK		BIT(0)
+#define GPC_PGC_CORE_PUPSCR		0x7fff80
 
 #define GPC_CPU_PGC_SW_PUP_REQ		0xf0
 #define GPC_PU_PGC_SW_PUP_REQ		0xf8
 #define GPC_CPU_PGC_SW_PDN_REQ		0xfc
 #define GPC_PU_PGC_SW_PDN_REQ		0x104
 #define GPC_PGC_SW_PDN_PUP_REQ_CORE1_MASK BIT(1)
+
+#define GPC_LPCR_A7_BSC			0
+#define GPC_LPCR_A7_AD			0x4
+#define GPC_LPCR_M4			0x8
+#define GPC_SLPCR			0x14
+#define GPC_MLPCR			0x20
+#define GPC_PGC_ACK_SEL_A7		0x24
+#define GPC_PGC_ACK_SEL_M4		0x28
+#define GPC_MISC			0x2C
+#define GPC_IMR1_CORE0_A7		0x30
+#define GPC_IMR2_CORE0_A7		0x34
+#define GPC_IMR3_CORE0_A7		0x38
+#define GPC_IMR4_CORE0_A7		0x3C
+#define GPC_IMR1_CORE1_A7		0x40
+#define GPC_IMR2_CORE1_A7		0x44
+#define GPC_IMR3_CORE1_A7		0x48
+#define GPC_IMR4_CORE1_A7		0x4C
+#define GPC_ISR1_A7			0x70
+#define GPC_ISR2_A7			0x74
+#define GPC_ISR3_A7			0x78
+#define GPC_ISR4_A7			0x7C
+#define GPC_SLT0_CFG			0xB0
+#define GPC_SLT1_CFG			0xB4
+#define GPC_SLT2_CFG			0xB8
+#define GPC_SLT3_CFG			0xBC
+#define GPC_SLT4_CFG			0xC0
+#define GPC_SLT5_CFG			0xC4
+#define GPC_SLT6_CFG			0xC8
+#define GPC_SLT7_CFG			0xCC
+#define GPC_SLT8_CFG			0xD0
+#define GPC_SLT9_CFG			0xD4
+#define GPC_PGC_CPU_MAPPING		0xEC
+#define GPC_PGC_SCU_AUXSW		0x890
+
+#define GPC_LPCR_A7_BSC_LPM0		SHIFT_U32(0x3, 0)
+#define GPC_LPCR_A7_BSC_LPM1		SHIFT_U32(0x3, 2)
+#define GPC_LPCR_A7_BSC_CPU_CLK_ON_LPM	BIT(14)
+#define GPC_LPCR_A7_BSC_MASK_CORE0_WFI	BIT(16)
+#define GPC_LPCR_A7_BSC_MASK_CORE1_WFI	BIT(17)
+#define GPC_LPCR_A7_BSC_MASK_L2CC_WFI	BIT(26)
+#define GPC_LPCR_A7_BSC_IRQ_SRC_C0	BIT(28)
+#define GPC_LPCR_A7_BSC_IRQ_SRC_C1	BIT(29)
+#define GPC_LPCR_A7_BSC_IRQ_SRC_A7_WUP	BIT(30)
+#define GPC_LPCR_A7_BSC_MASK_DSM_TRIGGER BIT(31)
+
+#define GPC_LPCR_A7_AD_L2_PGE			0x10000
+#define GPC_LPCR_A7_AD_EN_C1_PUP		0x800
+#define GPC_LPCR_A7_AD_EN_C1_IRQ_PUP		0x400
+#define GPC_LPCR_A7_AD_EN_C0_PUP		0x200
+#define GPC_LPCR_A7_AD_EN_C0_IRQ_PUP		0x100
+#define GPC_LPCR_A7_AD_EN_PLAT_PDN		0x10
+#define GPC_LPCR_A7_AD_EN_C1_PDN		0x8
+#define GPC_LPCR_A7_AD_EN_C1_WFI_PDN		0x4
+#define GPC_LPCR_A7_AD_EN_C0_PDN		0x2
+#define GPC_LPCR_A7_AD_EN_C0_WFI_PDN		0x1
+
+#define GPC_LPCR_M4_MASK_DSM_TRIGGER		BIT(31)
+
+#define GPC_SLPCR_EN_DSM			BIT(31)
+#define GPC_SLPCR_RBC_EN			BIT(30)
+#define GPC_SLPCR_EN_A7_FASTWUP_WAIT_MODE	BIT(16)
+#define GPC_SLPCR_SBYOS				BIT(1)
+#define GPC_SLPCR_BYPASS_PMIC_READY		BIT(0)
+
+#define GPC_MLPCR_MEMLP_CTL_DIS			BIT(0)
+
+#define GPC_PGC_ACK_SEL_A7_DUMMY_PUP_ACK	0x80000000
+#define GPC_PGC_ACK_SEL_A7_DUMMY_PDN_ACK	0x00008000
+#define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PUP_ACK	BIT(18)
+#define GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK	BIT(2)
+#define GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK	BIT(16)
+#define GPC_PGC_ACK_SEL_A7_C0_PGC_PDN_ACK	BIT(0)
+
+#define CORE0_A7_PDN_SLOT_CONTROL		BIT(0)
+#define CORE0_A7_PUP_SLOT_CONTROL		BIT(1)
+#define CORE1_A7_PDN_SLOT_CONTROL		BIT(2)
+#define CORE1_A7_PUP_SLOT_CONTROL		BIT(3)
+#define SCU_PDN_SLOT_CONTROL			BIT(4)
+#define SCU_PUP_SLOT_CONTROL			BIT(5)
+#define FASTMEGA_PDN_SLOT_CONTROL		BIT(6)
+#define FASTMEGA_PUP_SLOT_CONTROL		BIT(7)
+
 #endif

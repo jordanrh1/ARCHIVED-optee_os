@@ -24,6 +24,40 @@
 #include <sm/psci.h>
 #include <tee/entry_std.h>
 #include <tee/entry_fast.h>
+#include <atomic.h>
+#include "imx_pl310.h"
+
+#ifdef CFG_PL310
+#define CORE_IDX_L2CACHE                   0x00100000
+#endif
+
+uint32_t active_cores = 1;
+
+int psci_features(uint32_t psci_fid)
+{
+	switch (psci_fid) {
+#ifdef CFG_BOOT_SECONDARY_REQUEST
+	case PSCI_CPU_ON:
+		return 0;
+#endif
+	case PSCI_PSCI_FEATURES:
+	case PSCI_SYSTEM_OFF:
+	case PSCI_SYSTEM_RESET:
+	case PSCI_VERSION:
+		return 0;
+
+	case PSCI_CPU_SUSPEND:
+		return PSCI_OS_INITIATED | PSCI_EXTENDED_STATE_ID;
+
+	default:
+		return PSCI_RET_NOT_SUPPORTED;
+	}
+}
+
+uint32_t psci_version(void)
+{
+	return PSCI_VERSION_1_0;
+}
 
 int psci_features(uint32_t psci_fid)
 {
@@ -43,13 +77,21 @@ int psci_cpu_on(uint32_t core_idx, uint32_t entry,
 		uint32_t context_id)
 {
 	uint32_t val;
-	vaddr_t va = core_mmu_get_va(SRC_BASE, MEM_AREA_IO_SEC);
+	vaddr_t va;
 
+#ifdef CFG_PL310
+	if (core_idx == CORE_IDX_L2CACHE)
+		return l2cache_op(entry);
+#endif
+
+	va = core_mmu_get_va(SRC_BASE, MEM_AREA_IO_SEC);
 	if (!va)
 		EMSG("No SRC mapping\n");
 
 	if ((core_idx == 0) || (core_idx >= CFG_TEE_CORE_NB_CORE))
 		return PSCI_RET_INVALID_PARAMETERS;
+
+	atomic_inc32(&active_cores);
 
 	/* set secondary cores' NS entry addresses */
 	generic_boot_set_core_ns_entry(core_idx, entry, context_id);
@@ -90,6 +132,8 @@ int psci_cpu_off(void)
 	core_id = get_core_pos();
 
 	DMSG("core_id: %" PRIu32, core_id);
+
+	atomic_dec32(&active_cores);
 
 	psci_armv7_cpu_off();
 
@@ -181,43 +225,16 @@ __weak int imx7_cpu_suspend(uint32_t power_state __unused,
 	return 0;
 }
 
-int psci_cpu_suspend(uint32_t power_state,
-		     uintptr_t entry, uint32_t context_id __unused,
-		     struct sm_nsec_ctx *nsec)
+int psci_cpu_suspend(uint32_t power_state __maybe_unused,
+		     uintptr_t entry __maybe_unused,
+		     uint32_t context_id __maybe_unused,
+		     struct sm_nsec_ctx *nsec __maybe_unused)
 {
-	uint32_t id, type;
 	int ret = PSCI_RET_INVALID_PARAMETERS;
 
-	id = power_state & PSCI_POWER_STATE_ID_MASK;
-	type = (power_state & PSCI_POWER_STATE_TYPE_MASK) >>
-		PSCI_POWER_STATE_TYPE_SHIFT;
-
-	if ((type != PSCI_POWER_STATE_TYPE_POWER_DOWN) &&
-	    (type != PSCI_POWER_STATE_TYPE_STANDBY)) {
-		DMSG("Not supported %x\n", type);
-		return ret;
-	}
-
-	/*
-	 * ID 0 means suspend
-	 * ID 1 means low power idle
-	 * TODO: follow PSCI StateID sample encoding.
-	 */
-	DMSG("ID = %d\n", id);
-	if (id == 1) {
-		if (soc_is_imx7ds())
-			return imx7d_lowpower_idle(power_state, entry,
-						   context_id, nsec);
-		return ret;
-	} else if (id == 0) {
-		if (soc_is_imx7ds()) {
-			return imx7_cpu_suspend(power_state, entry,
-						context_id, nsec);
-		}
-		return ret;
-	}
-
-	DMSG("ID %d not supported\n", id);
+#ifdef CFG_MX7
+	ret = imx7_cpu_suspend(power_state, entry, context_id, nsec);
+#endif
 
 	return ret;
 }
@@ -226,3 +243,23 @@ void psci_system_reset(void)
 {
 	imx_wdog_restart();
 }
+
+void __attribute__((noreturn)) psci_system_off(void)
+{
+	vaddr_t snvs = core_mmu_get_va(SNVS_BASE, MEM_AREA_IO_SEC);
+	uint32_t val;
+
+	/* Reset power glitch detector */
+	write32(SNVS_LPPGDR_INIT, snvs + SNVS_LPPGDR);
+	write32(SNVS_LPSR_PGD, snvs + SNVS_LPSR);
+
+	/* Set dumb power manager mode to 1 and turn off power */
+	val = read32(snvs + SNVS_LPCR);
+	val |= SNVS_LPCR_DP_EN;
+	val |= SNVS_LPCR_TOP;
+	write32(val, snvs + SNVS_LPCR);
+
+	/* Wait for the end */
+	for (;;) wfi();
+}
+

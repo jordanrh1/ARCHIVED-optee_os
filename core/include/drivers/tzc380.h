@@ -37,6 +37,7 @@
 #include <util.h>
 
 #define TZC400_REG_SIZE		0x1000
+#define TZC380_REG_SIZE		0x1000
 
 #define BUILD_CONFIG_OFF	0x000
 #define ACTION_OFF		0x004

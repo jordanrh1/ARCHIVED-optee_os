@@ -17,7 +17,7 @@
 #define DRAM0_SIZE		CFG_DDR_SIZE
 
 /* Location of trusted dram */
-#define TZDRAM_BASE		(DRAM0_BASE + CFG_DDR_SIZE - 32 * 1024 * 1024)
+#define TZDRAM_BASE		DRAM0_BASE
 #define TZDRAM_SIZE		(30 * 1024 * 1024)
 
 /* Full GlobalPlatform test suite requires CFG_SHMEM_SIZE to be at least 2MB */
@@ -28,11 +28,14 @@
 
 /*
  * Everything is in TZDRAM.
- * +------------------+
- * |        | TEE_RAM |
- * + TZDRAM +---------+
- * |        | TA_RAM  |
- * +--------+---------+
+ *  +---------------------------------------+  <- TZDRAM_BASE
+ *  | TEE private secure |  TEE_RAM         |   ^
+ *  |   external memory  +------------------+   | TZDRAM_SIZE
+ *  |                    |  TA_RAM          |   v
+ *  +---------------------------------------+  <- CFG_SHMEM_START
+ *  |     Non secure     |  SHM             |   ^
+ *  |   shared memory    |                  |   | CFG_SHMEM_SIZE
+ *  +---------------------------------------+   v
  */
 #define CFG_TEE_RAM_PH_SIZE     CFG_TEE_RAM_VA_SIZE
 #define CFG_TEE_RAM_START	TZDRAM_BASE
