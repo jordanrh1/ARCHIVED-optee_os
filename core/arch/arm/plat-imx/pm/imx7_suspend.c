@@ -44,9 +44,186 @@
 
 struct git_timer_state {
 	uint32_t cntfrq;
+	uint32_t cntkctl;
 };
 
 static int suspended_init;
+
+
+// XXX GPT timer code begin
+#ifndef GPT1_BASE_ADDR
+#define GPT1_BASE_ADDR 0x302D0000
+#define GPT2_BASE_ADDR 0x302E0000
+#endif
+
+#ifndef SHIFT_U32
+#define SHIFT_U32(v, shift)   ((v) << (shift))
+#endif
+
+/* GPT register definitions */
+#define GPT_CR                                   0x0
+#define GPT_PR                                   0x4
+#define GPT_SR                                   0x8
+#define GPT_IR                                   0xc
+#define GPT_OCR1                                 0x10
+#define GPT_OCR2                                 0x14
+#define GPT_OCR3                                 0x18
+#define GPT_ICR1                                 0x1c
+#define GPT_ICR2                                 0x20
+#define GPT_CNT                                  0x24
+
+#define GPT_CR_EN                                BIT(0)
+#define GPT_CR_ENMOD                             BIT(1)
+#define GPT_CR_DBGEN                             BIT(2)
+#define GPT_CR_WAITEN                            BIT(3)
+#define GPT_CR_DOZEEN                            BIT(4)
+#define GPT_CR_STOPEN                            BIT(5)
+#define GPT_CR_CLKSRC_24M                        SHIFT_U32(0x5, 6)
+#define GPT_CR_CLKSRC_32K                        SHIFT_U32(0x4, 6)
+#define GPT_CR_FRR                               BIT(9)
+#define GPT_CR_EN_24M                            BIT(10)
+#define GPT_CR_SWR                               BIT(15)
+
+#define GPT_IR_OF1IE                             BIT(0)
+
+#define GPT_USE_32K
+#ifdef GPT_USE_32K
+#define GPT_FREQ 32768
+#define GPT_PRESCALER24M 0
+#define GPT_PRESCALER 0
+#else
+#define GPT_FREQ 1000000
+#define GPT_PRESCALER24M (12 - 1)
+#define GPT_PRESCALER (2 - 1)
+#endif
+
+#define GPT1_IRQ	(55 + 32)
+#define GPT2_IRQ        (54 + 32)
+
+#define GPT_BASE_ADDR GPT2_BASE_ADDR
+#define GPT_IRQ GPT2_IRQ
+
+#define GIC_BASE                0x31000000
+#define GIC_SIZE                0x8000
+#define GICC_OFFSET             0x2000
+#define GICD_OFFSET             0x1000
+#define GICD_BASE		(GIC_BASE + GICD_OFFSET)
+#define NUM_INTS_PER_REG	32
+#define GICD_ISENABLER(n)       (0x100 + (n) * 4)
+
+static uint32_t gpt_base;
+static bool __maybe_unused gpt_ack_interrupt(void);
+
+static enum itr_return gpt_itr_cb(struct itr_handler *h __unused)
+{
+	DMSG("GPT1 interrupt!");
+	return gpt_ack_interrupt() ? ITRR_HANDLED : ITRR_NONE;
+}
+
+static struct itr_handler gpt_itr = {
+	.it = GPT_IRQ,
+	.flags = ITRF_TRIGGER_LEVEL,
+	.handler = gpt_itr_cb,
+};
+
+static void gpt_init(void)
+{
+	uint32_t val;
+
+	if (!core_mmu_add_mapping(MEM_AREA_IO_SEC, GPT_BASE_ADDR,
+					  CORE_MMU_DEVICE_SIZE)) {
+
+		DMSG("Failed to map GPT timer");
+	}
+
+	gpt_base = (uint32_t)phys_to_virt(GPT_BASE_ADDR, MEM_AREA_IO_SEC);
+
+	DMSG("Successfully mapped GPT at 0x%x", gpt_base);
+
+	/* Disable GPT */
+	write32(0, gpt_base + GPT_CR);
+
+	/* Software reset */
+	write32(GPT_CR_SWR, gpt_base + GPT_CR);
+
+	/* Wait for reset bit to clear */
+	while ((read32(gpt_base + GPT_CR) & GPT_CR_SWR) != 0);
+
+	/* Set prescaler to target frequency */
+	val = ((GPT_PRESCALER24M & 0xf) << 12) |  (GPT_PRESCALER & 0xfff);
+	write32(val, gpt_base + GPT_PR);
+
+	/* Select clock source */
+#ifdef GPT_USE_32K
+	val = GPT_CR_CLKSRC_32K;
+#else
+	val = GPT_CR_CLKSRC_24M;
+#endif
+	write32(val, gpt_base + GPT_CR);
+
+	val = read32(gpt_base + GPT_CR);
+	val |= GPT_CR_EN;
+	val |= GPT_CR_ENMOD;
+	val |= GPT_CR_STOPEN;
+	val |= GPT_CR_WAITEN;
+	val |= GPT_CR_DOZEEN;
+	val |= GPT_CR_DBGEN;
+	val |= GPT_CR_FRR;
+#ifndef GPT_USE_32K
+	val |= GPT_CR_EN_24M;
+#endif
+	write32(val, gpt_base + GPT_CR);
+
+	itr_add(&gpt_itr);
+	itr_enable(GPT_IRQ);
+
+	DMSG("Initialized GPT");
+}
+
+static void gpt_schedule_interrupt(uint32_t ms)
+{
+	uint32_t val;
+
+	/* Disable timer */
+	val = read32(gpt_base + GPT_CR);
+	val &= ~GPT_CR_EN;
+	write32(val, gpt_base + GPT_CR);
+
+	/* Disable and acknowledge interrupts */
+	write32(0, gpt_base + GPT_IR);
+	write32(0x3f, gpt_base + GPT_SR);
+
+	/* Set compare1 register */
+	write32(GPT_FREQ / 1000 * ms, gpt_base + GPT_OCR1);
+
+	/* Enable compare interrupt */
+	write32(GPT_IR_OF1IE, gpt_base + GPT_IR);
+
+	/* Enable timer */
+	val |= GPT_CR_EN;
+	val |= GPT_CR_ENMOD;
+	write32(val, gpt_base + GPT_CR);
+}
+
+static bool __maybe_unused gpt_ack_interrupt(void)
+{
+        uint32_t val;
+
+        val = read32(gpt_base + GPT_SR);
+
+        /* Disable and acknowledge interrupts */
+        write32(0, gpt_base + GPT_IR);
+        write32(0x3f, gpt_base + GPT_SR);
+
+        return (val & 0x1) != 0;
+}
+
+static void __maybe_unused gpt_wait_for_interrupt(void)
+{
+	while((read32(gpt_base + GPT_SR) & 0x1) == 0);
+}
+
+// XXX GPT test code end
 
 static int imx7_cpu_suspend_to_ocram(uint32_t power_state __unused,
 		uintptr_t entry, uint32_t context_id __unused,
@@ -87,11 +264,14 @@ static int imx7_cpu_suspend_to_ocram(uint32_t power_state __unused,
 static void git_timer_save_state(struct git_timer_state *state)
 {
 	state->cntfrq = read_cntfrq();
+	state->cntkctl = read_cntkctl();
 }
 
-static void git_timer_restore_state(struct git_timer_state *state)
+static void __maybe_unused git_timer_restore_state(struct git_timer_state *state)
 {
 	write_cntfrq(state->cntfrq);
+	write_cntkctl(state->cntkctl);
+	write_cntvoff(0);
 }
 
 static void enable_wake_irqs(struct imx7_pm_info *p)
@@ -321,6 +501,12 @@ static int imx7_lpm_entry(uint32_t lpm_flags)
 	uint32_t val;
 	struct imx7_pm_info *p = pm_info;
 
+	//console_putc('~');
+	//DMSG("Before: cntpct=0x%llx, cntvct=0x%llx, cntfrq=0x%x, cntkctl=0x%x"
+	//     ", cntvoff=0x%llx",
+	//	read_cntpct(), read_cntvct(), read_cntfrq(), read_cntkctl(),
+	//	read_cntvoff());
+
 	/* setup resume address and parameter in OCRAM */
 	if (lpm_flags & LPM_POWER_DOWN_CORES) {
 		int core_idx = get_core_pos();
@@ -336,9 +522,13 @@ static int imx7_lpm_entry(uint32_t lpm_flags)
 	if (lpm_flags & LPM_INITIATING_CORE)
 		imx7_prepare_lpm(lpm_flags, p);
 
+	console_putc('+');
+
 	/* enter LPM */
 	dsb();
 	wfi();
+
+	console_putc('*');
 
 	/* return value ignored by sm_pm_cpu_suspend */
 	return 0;
@@ -354,8 +544,6 @@ static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 	struct git_timer_state git_state;
 
 	assert(lpm_flags & LPM_POWER_DOWN_CORES);
-
-	console_putc('+');
 
 	git_timer_save_state(&git_state);
 
@@ -377,7 +565,7 @@ static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 	}
 	
 	if (ret != 0) {
-		DMSG("=== Core did not power down ===");
+		//EMSG("=== Core did not power down ===");
 		return PSCI_RET_SUCCESS;
 	}
 
@@ -397,6 +585,11 @@ static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 	//	(uint32_t)entry, context_id);
 	
 	console_putc('-');
+	//DMSG("After: cntpct=0x%llx, cntvct=0x%llx, cntfrq=0x%x, cntkctl=0x%x"
+	//	", cntvoff=0x%llx",
+	//	read_cntpct(), read_cntvct(), read_cntfrq(), read_cntkctl(),
+	//	read_cntvoff());
+
 	return context_id;
 }
 
@@ -463,6 +656,7 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		return imx7_lpm(LPM_STATE_CLOCK_GATED | LPM_INITIATING_CORE,
 				entry, context_id, nsec);
 
+	case 0x41000005:
 	case 0x41000055:
 		return imx7_lpm(
 			LPM_MODE_WAIT |
@@ -475,8 +669,15 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 			context_id,
 			nsec);
 
-	case 0x41000155:
+	case 0x1234:
+
+		gpt_init();
 		for (;;) {
+
+			gpt_schedule_interrupt(1000);
+			gpt_wait_for_interrupt();
+
+			DMSG("Attempting first LPM with interrupt asserted");
 			imx7_lpm(
 				LPM_MODE_WAIT |
 				LPM_STOP_ARM_CLOCK |
@@ -487,6 +688,23 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 				entry,
 				context_id,
 				nsec);
+
+			DMSG("Attempting second LPM");
+			gpt_schedule_interrupt(500);
+
+			imx7_lpm(
+				LPM_MODE_WAIT |
+				LPM_STOP_ARM_CLOCK |
+				LPM_POWER_DOWN_CORES |
+				//LPM_POWER_DOWN_SCU |
+				//LPM_POWER_DOWN_L2 |
+				LPM_INITIATING_CORE,
+				entry,
+				context_id,
+				nsec);
+
+			gpt_ack_interrupt();
+			DMSG("Back from second LPM");
 		}
 
 	default:
@@ -494,3 +712,5 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		return PSCI_RET_INVALID_PARAMETERS;
 	}
 }
+
+

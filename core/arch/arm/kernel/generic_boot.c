@@ -180,6 +180,8 @@ static void primary_save_cntfrq(void)
 	 * previous boot stage
 	 */
 	cntfrq = read_cntfrq();
+	assert(cntfrq != 0);
+	DMSG("cntfrq = 0x%x", cntfrq);
 }
 
 static void secondary_init_cntfrq(void)

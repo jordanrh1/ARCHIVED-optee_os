@@ -554,12 +554,59 @@ static inline void write_nsacr(uint32_t nsacr)
 	);
 }
 
+static inline uint32_t read_scr(void)
+{
+	uint32_t val;
+
+	asm volatile("mrc p15, 0, %0, c1, c1, 0" : "=r" (val));
+	return val;
+}
+
+//static inline void write_scr(uint32_t val)
+//{
+//	asm volatile("mcr p15, 0, %0, c1, c1, 0" : : "r" (val));
+//}
+
+
 static inline uint64_t read_cntpct(void)
 {
 	uint64_t val;
 
 	asm volatile("mrrc p15, 0, %Q0, %R0, c14" : "=r" (val));
 	return val;
+}
+
+static inline uint64_t read_cntvct(void)
+{
+	uint64_t val;
+
+	asm volatile("mrrc p15, 1, %Q0, %R0, c14" : "=r" (val));
+	return val;
+}
+
+static inline uint64_t read_cntvoff(void)
+{
+	uint64_t val;
+	uint32_t scr = read_scr();
+
+	write_scr(scr | SCR_NS);
+	isb();
+	asm volatile("mrrc p15, 4, %Q0, %R0, c14" : "=r" (val));
+	write_scr(scr);
+	isb();
+	return val;
+}
+
+static inline void write_cntvoff(uint64_t val)
+{
+	uint32_t scr = read_scr();
+	write_scr(scr | SCR_NS);
+	isb();
+	asm volatile ("mcrr	p15, 4, %Q[val], %R[val], c14"
+			: : [val] "r" (val)
+	);
+	write_scr(scr);
+	isb();
 }
 
 static inline uint32_t read_cntfrq(void)
@@ -580,6 +627,30 @@ static inline uint32_t read_cntkctl(void)
 	uint32_t cntkctl;
 
 	asm volatile("mrc p15, 0, %0, c14, c1, 0" : "=r" (cntkctl));
+	return cntkctl;
+}
+
+static inline uint32_t read_cnthctl(void)
+{
+	uint32_t cntkctl;
+
+	asm volatile("mrc p15, 4, %0, c14, c1, 0" : "=r" (cntkctl));
+	return cntkctl;
+}
+
+static inline uint32_t read_cnthp_ctl(void)
+{
+	uint32_t cntkctl;
+
+	asm volatile("mrc p15, 4, %0, c14, c2, 0" : "=r" (cntkctl));
+	return cntkctl;
+}
+
+static inline uint32_t read_cntp_ctl(void)
+{
+	uint32_t cntkctl;
+
+	asm volatile("mrc p15, 0, %0, c14, c2, 1" : "=r" (cntkctl));
 	return cntkctl;
 }
 
