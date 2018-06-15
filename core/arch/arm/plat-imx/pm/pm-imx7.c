@@ -23,7 +23,8 @@
 
 paddr_t iram_tbl_phys_addr = -1UL;
 void *iram_tbl_virt_addr;
-struct imx7_pm_info *pm_info;
+struct imx7_pm_info *suspend_info;
+struct imx7_pm_info *lpi_info;
 
 #define READ_DATA_FROM_HARDWARE		0
 
@@ -231,6 +232,6 @@ int imx7_suspend_init(void)
 	 */
 	icache_inv_all();
 
-	pm_info = p;
+	suspend_info = p;
 	return 0;
 }

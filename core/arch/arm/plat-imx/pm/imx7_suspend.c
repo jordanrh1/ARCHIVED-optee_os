@@ -229,7 +229,7 @@ static int imx7_cpu_suspend_to_ocram(uint32_t power_state __unused,
 		uintptr_t entry, uint32_t context_id __unused,
 		struct sm_nsec_ctx *nsec)
 {
-	struct imx7_pm_info *p = pm_info;
+	struct imx7_pm_info *p = suspend_info;
 	int ret;
 
 	/* Store non-sec ctx regs */
@@ -311,7 +311,7 @@ static void enable_gpr_irq(struct imx7_pm_info *p)
 
 static void imx7_lpm_init(void)
 {
-	struct imx7_pm_info *p = pm_info;
+	struct imx7_pm_info *p = lpi_info;
 	uint32_t val;
 
 	enable_gpr_irq(p);
@@ -499,7 +499,11 @@ static void imx7_prepare_lpm(uint32_t lpm_flags, struct imx7_pm_info *p)
 static int imx7_lpm_entry(uint32_t lpm_flags)
 {
 	uint32_t val;
-	struct imx7_pm_info *p = pm_info;
+	struct imx7_pm_info *p = lpi_info;
+	
+	typedef int idle_entry_func(uint32_t);
+	idle_entry_func *enter_lpi = 
+		(idle_entry_func *)(p->va_base + sizeof(*p));
 
 	//console_putc('~');
 	//DMSG("Before: cntpct=0x%llx, cntvct=0x%llx, cntfrq=0x%x, cntkctl=0x%x"
@@ -508,7 +512,8 @@ static int imx7_lpm_entry(uint32_t lpm_flags)
 	//	read_cntvoff());
 
 	/* setup resume address and parameter in OCRAM */
-	if (lpm_flags & LPM_POWER_DOWN_CORES) {
+	// XXX handled in assembly
+	if (false /*lpm_flags & LPM_POWER_DOWN_CORES*/) {
 		int core_idx = get_core_pos();
 
 		val = ((uint32_t)&resume - (uint32_t)&imx7_suspend) +
@@ -523,10 +528,16 @@ static int imx7_lpm_entry(uint32_t lpm_flags)
 		imx7_prepare_lpm(lpm_flags, p);
 
 	console_putc('+');
-
 	/* enter LPM */
-	dsb();
-	wfi();
+	if (lpm_flags & LPM_POWER_DOWN_CORES) {
+		enter_lpi((uint32_t)p);
+	} else {
+		dsb();
+		wfi();
+	}
+	//imx7d_low_power_idle(p);
+	//dsb();
+	//wfi();
 
 	console_putc('*');
 
@@ -599,7 +610,7 @@ static int imx7_lpm(uint32_t lpm_flags, uintptr_t entry,
 {
 	int ret;
 	uint32_t val;
-	struct imx7_pm_info *p = pm_info;
+	struct imx7_pm_info *p = lpi_info;
 
 	val = atomic_dec32(&active_cores);
 	if ((lpm_flags & LPM_INITIATING_CORE) && (val != 0)) {
@@ -627,6 +638,7 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 {
 	if (!suspended_init) {
 		imx7_suspend_init();
+		imx7d_cpuidle_init();
 		imx7_lpm_init();
 		suspended_init = 1;
 	}

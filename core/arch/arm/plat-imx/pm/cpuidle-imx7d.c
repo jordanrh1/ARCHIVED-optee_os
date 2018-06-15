@@ -81,6 +81,7 @@ int imx7d_cpuidle_init(void)
 	 */
 	icache_inv_all();
 
+	lpi_info = p;
 	return 0;
 }
 

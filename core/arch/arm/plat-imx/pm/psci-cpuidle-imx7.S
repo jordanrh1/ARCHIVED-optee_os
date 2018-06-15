@@ -587,15 +587,17 @@ UNWIND( .fnstart)
 
 	tlb_set_to_ocram
 
-	/* check last to sleep */
-	ldr	r6, [r0, #PM_INFO_MX7_NUM_ONLINE_CPUS_OFF]
-	ldr	r7, [r0, #PM_INFO_MX7_NUM_LPI_CPUS_OFF]
-	cmp	r6, r7
-	bne	lpi_enter_done
+	b lpi_enter_done
 
-	ddrc_enter_self_refresh
-	ccm_enter_idle
-	anatop_enter_idle
+	/* XXX check last to sleep */
+	//ldr	r6, [r0, #PM_INFO_MX7_NUM_ONLINE_CPUS_OFF]
+	//ldr	r7, [r0, #PM_INFO_MX7_NUM_LPI_CPUS_OFF]
+	//cmp	r6, r7
+	//bne	lpi_enter_done
+
+	//ddrc_enter_self_refresh
+	//ccm_enter_idle
+	//anatop_enter_idle
 
 	ldr	r10, [r0, #PM_INFO_MX7_GIC_DIST_V_OFF]
 	ldr	r7, =0x0
@@ -653,28 +655,28 @@ rbc_loop:
 	bne	rbc_loop
 
 lpi_enter_done:
-	imx_pen_unlock
+	// XXX imx_pen_unlock
 
+	dsb
         wfi
-	isb
 
-	imx_pen_lock
+	// XXX imx_pen_lock
 
-	/* check first to wake */
-	ldr	r6, [r0, #PM_INFO_MX7_NUM_ONLINE_CPUS_OFF]
-	ldr	r7, [r0, #PM_INFO_MX7_NUM_LPI_CPUS_OFF]
-	cmp	r6, r7
-	bne	skip_lpi_flow
+	/* XXX check first to wake */
+	//ldr	r6, [r0, #PM_INFO_MX7_NUM_ONLINE_CPUS_OFF]
+	//ldr	r7, [r0, #PM_INFO_MX7_NUM_LPI_CPUS_OFF]
+	//cmp	r6, r7
+	//bne	skip_lpi_flow
 
 	ldr	r5, =0x0
-	anatop_exit_idle
-	ccm_exit_idle
-	ddrc_exit_self_refresh
+	//anatop_exit_idle
+	//ccm_exit_idle
+	//ddrc_exit_self_refresh
 
-	ldr	r10, [r0, #PM_INFO_MX7_GIC_DIST_V_OFF]
-	ldr	r7, =0x3
-	ldr	r8, =0x1000
-	str	r7, [r10, r8]
+	//ldr	r10, [r0, #PM_INFO_MX7_GIC_DIST_V_OFF]
+	//ldr	r7, =0x3
+	//ldr	r8, =0x1000
+	//str	r7, [r10, r8]
 skip_lpi_flow:
 
 	tlb_back_to_ddr
@@ -710,17 +712,17 @@ wakeup:
 	/* switch monitor mode */
 	cps	#CPSR_MODE_MON
 
-	imx_pen_lock
+	//imx_pen_lock
 	/* check first to wake */
-	ldr	r6, [r0, #PM_INFO_MX7_NUM_ONLINE_CPUS_OFF]
-	ldr	r7, [r0, #PM_INFO_MX7_NUM_LPI_CPUS_OFF]
-	cmp	r6, r7
-	bne	wakeup_skip_lpi_flow
+	//ldr	r6, [r0, #PM_INFO_MX7_NUM_ONLINE_CPUS_OFF]
+	//ldr	r7, [r0, #PM_INFO_MX7_NUM_LPI_CPUS_OFF]
+	//cmp	r6, r7
+	//bne	wakeup_skip_lpi_flow
 
 	ldr	r5, =0x1
-	anatop_exit_idle
-	ccm_exit_idle
-	ddrc_exit_self_refresh
+	//anatop_exit_idle
+	//ccm_exit_idle
+	//ddrc_exit_self_refresh
 wakeup_skip_lpi_flow:
 
 	/* get physical resume address from pm_info. */
