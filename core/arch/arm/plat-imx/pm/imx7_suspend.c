@@ -668,14 +668,13 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		return imx7_lpm(LPM_STATE_CLOCK_GATED | LPM_INITIATING_CORE,
 				entry, context_id, nsec);
 
-	case 0x41000005:
 	case 0x41000055:
 		return imx7_lpm(
 			LPM_MODE_WAIT |
 			LPM_STOP_ARM_CLOCK |
 			LPM_POWER_DOWN_CORES |
-			//LPM_POWER_DOWN_SCU |
-			//LPM_POWER_DOWN_L2 |
+			LPM_POWER_DOWN_SCU |
+			LPM_POWER_DOWN_L2 |
 			LPM_INITIATING_CORE,
 			entry,
 			context_id,
