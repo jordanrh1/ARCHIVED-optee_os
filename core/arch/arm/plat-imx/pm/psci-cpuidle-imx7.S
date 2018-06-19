@@ -587,8 +587,6 @@ UNWIND( .fnstart)
 
 	tlb_set_to_ocram
 
-	b lpi_enter_done
-
 	/* XXX check last to sleep */
 	//ldr	r6, [r0, #PM_INFO_MX7_NUM_ONLINE_CPUS_OFF]
 	//ldr	r7, [r0, #PM_INFO_MX7_NUM_LPI_CPUS_OFF]
@@ -598,6 +596,7 @@ UNWIND( .fnstart)
 	//ddrc_enter_self_refresh
 	//ccm_enter_idle
 	//anatop_enter_idle
+	b	lpi_enter_done
 
 	ldr	r10, [r0, #PM_INFO_MX7_GIC_DIST_V_OFF]
 	ldr	r7, =0x0

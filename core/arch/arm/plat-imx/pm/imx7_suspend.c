@@ -685,37 +685,39 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		gpt_init();
 		for (;;) {
 
-			gpt_schedule_interrupt(1000);
+			
+			gpt_schedule_interrupt(1);
 			gpt_wait_for_interrupt();
 
-			DMSG("Attempting first LPM with interrupt asserted");
+			//DMSG("Attempting first LPM with interrupt asserted");
 			imx7_lpm(
 				LPM_MODE_WAIT |
 				LPM_STOP_ARM_CLOCK |
 				LPM_POWER_DOWN_CORES |
-				//LPM_POWER_DOWN_SCU |
-				//LPM_POWER_DOWN_L2 |
+				LPM_POWER_DOWN_SCU |
+				LPM_POWER_DOWN_L2 |
 				LPM_INITIATING_CORE,
 				entry,
 				context_id,
 				nsec);
-
-			DMSG("Attempting second LPM");
-			gpt_schedule_interrupt(500);
+			
+			//DMSG("Attempting second LPM");
+			
+			gpt_schedule_interrupt(10);
 
 			imx7_lpm(
 				LPM_MODE_WAIT |
 				LPM_STOP_ARM_CLOCK |
 				LPM_POWER_DOWN_CORES |
-				//LPM_POWER_DOWN_SCU |
-				//LPM_POWER_DOWN_L2 |
+				LPM_POWER_DOWN_SCU |
+				LPM_POWER_DOWN_L2 |
 				LPM_INITIATING_CORE,
 				entry,
 				context_id,
 				nsec);
 
 			gpt_ack_interrupt();
-			DMSG("Back from second LPM");
+			//DMSG("Back from second LPM");
 		}
 
 	default:
