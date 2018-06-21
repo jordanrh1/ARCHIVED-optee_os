@@ -49,6 +49,8 @@ struct git_timer_state {
 
 static int suspended_init;
 
+uint32_t cores_in_state_count[2];
+
 
 // XXX GPT timer code begin
 #ifndef GPT1_BASE_ADDR
@@ -116,7 +118,7 @@ static bool __maybe_unused gpt_ack_interrupt(void);
 
 static enum itr_return gpt_itr_cb(struct itr_handler *h __unused)
 {
-	DMSG("GPT1 interrupt!");
+	DMSG("GPT interrupt on core %d!", get_core_pos());
 	return gpt_ack_interrupt() ? ITRR_HANDLED : ITRR_NONE;
 }
 
@@ -175,6 +177,9 @@ static void gpt_init(void)
 	write32(val, gpt_base + GPT_CR);
 
 	itr_add(&gpt_itr);
+
+	// Route the interrupt to core 0
+	itr_set_affinity(GPT_IRQ, 0x1);
 	itr_enable(GPT_IRQ);
 
 	DMSG("Initialized GPT");
@@ -422,7 +427,7 @@ static void imx7_prepare_lpm(uint32_t lpm_flags, struct imx7_pm_info *p)
 	val = read32(p->gpc_va_base + GPC_LPCR_A7_AD);
 	assert((val & GPC_LPCR_A7_AD_EN_C0_WFI_PDN) == 0);
 	assert((val & GPC_LPCR_A7_AD_EN_C0_IRQ_PUP) == 0);
-	assert((val & GPC_LPCR_A7_AD_EN_C1_PUP) == 0);
+	//assert((val & GPC_LPCR_A7_AD_EN_C1_PUP) == 0);
 	assert((val & GPC_LPCR_A7_AD_EN_C1_WFI_PDN) == 0);
 	assert((val & GPC_LPCR_A7_AD_EN_C1_IRQ_PUP) == 0);
 
@@ -430,6 +435,7 @@ static void imx7_prepare_lpm(uint32_t lpm_flags, struct imx7_pm_info *p)
 		val |= GPC_LPCR_A7_AD_EN_C0_PDN;
 		val |= GPC_LPCR_A7_AD_EN_C1_PDN;
 		val |= GPC_LPCR_A7_AD_EN_C0_PUP;
+		val |= GPC_LPCR_A7_AD_EN_C1_PUP;
 
 		if (lpm_flags & LPM_POWER_DOWN_SCU) {
 			val |= GPC_LPCR_A7_AD_EN_PLAT_PDN;
@@ -445,6 +451,7 @@ static void imx7_prepare_lpm(uint32_t lpm_flags, struct imx7_pm_info *p)
 		val &= ~GPC_LPCR_A7_AD_EN_C0_PDN;
 		val &= ~GPC_LPCR_A7_AD_EN_C1_PDN;
 		val &= ~GPC_LPCR_A7_AD_EN_C0_PUP;
+		val &= ~GPC_LPCR_A7_AD_EN_C1_PUP;
 	}
 
 	write32(val, p->gpc_va_base + GPC_LPCR_A7_AD);
@@ -461,20 +468,26 @@ static void imx7_prepare_lpm(uint32_t lpm_flags, struct imx7_pm_info *p)
 			write32(SCU_PDN_SLOT_CONTROL,
 				p->gpc_va_base + GPC_SLT3_CFG);
 
-			/* A7_SCU power up in SLOT6 */
+			/* A7_SCU power up in SLOT5 */
 			write32(SCU_PUP_SLOT_CONTROL,
-				p->gpc_va_base + GPC_SLT6_CFG);
+				p->gpc_va_base + GPC_SLT5_CFG);
 		}
 
-		/* A7_C0 power up in SLOT7 */
+		/* A7_C0 power up in SLOT6 */
 		write32(CORE0_A7_PUP_SLOT_CONTROL,
+			p->gpc_va_base + GPC_SLT6_CFG);
+
+		// XXX do we need to power up C1?
+		/* A7_C1 power up in SLOT7 */
+		write32(CORE1_A7_PUP_SLOT_CONTROL,
 			p->gpc_va_base + GPC_SLT7_CFG);
 
+		// XXX only set PUP ack to core1 if core1 online
 		if (lpm_flags & LPM_POWER_DOWN_SCU) {
 			val = GPC_PGC_ACK_SEL_A7_PLAT_PGC_PDN_ACK |
-				GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK;
+				GPC_PGC_ACK_SEL_A7_C1_PGC_PUP_ACK;
 		} else {
-			val = GPC_PGC_ACK_SEL_A7_C0_PGC_PUP_ACK |
+			val = GPC_PGC_ACK_SEL_A7_C1_PGC_PUP_ACK |
 				GPC_PGC_ACK_SEL_A7_C0_PGC_PDN_ACK;
 		}
 
@@ -498,7 +511,7 @@ static void imx7_prepare_lpm(uint32_t lpm_flags, struct imx7_pm_info *p)
 
 static int imx7_lpm_entry(uint32_t lpm_flags)
 {
-	uint32_t val;
+	//uint32_t val;
 	struct imx7_pm_info *p = lpi_info;
 	
 	typedef int idle_entry_func(uint32_t);
@@ -513,7 +526,8 @@ static int imx7_lpm_entry(uint32_t lpm_flags)
 
 	/* setup resume address and parameter in OCRAM */
 	// XXX handled in assembly
-	if (false /*lpm_flags & LPM_POWER_DOWN_CORES*/) {
+	/*
+	if (lpm_flags & LPM_POWER_DOWN_CORES) {
 		int core_idx = get_core_pos();
 
 		val = ((uint32_t)&resume - (uint32_t)&imx7_suspend) +
@@ -523,11 +537,13 @@ static int imx7_lpm_entry(uint32_t lpm_flags)
 		write32(p->pa_base,
 			p->src_va_base + SRC_GPR2_MX7 + core_idx * 8);
 	}
+	*/
 
 	if (lpm_flags & LPM_INITIATING_CORE)
 		imx7_prepare_lpm(lpm_flags, p);
 
-	console_putc('+');
+	//console_putc('+');
+	DMSG("cpu %d entering idle", get_core_pos());
 	/* enter LPM */
 	if (lpm_flags & LPM_POWER_DOWN_CORES) {
 		enter_lpi((uint32_t)p);
@@ -539,7 +555,8 @@ static int imx7_lpm_entry(uint32_t lpm_flags)
 	//dsb();
 	//wfi();
 
-	console_putc('*');
+	//console_putc('*');
+	DMSG("cpu %d resume from idle (context retained)", get_core_pos());
 
 	/* return value ignored by sm_pm_cpu_suspend */
 	return 0;
@@ -586,7 +603,8 @@ static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 	sm_restore_modes_regs(&nsec->mode_regs);
 
 	//main_init_gic();
-	if (lpm_flags & LPM_POWER_DOWN_SCU)
+	if ((lpm_flags & LPM_POWER_DOWN_SCU) &&
+	    (lpm_flags & LPM_INITIATING_CORE))
 		gic_restore_state(&gic_data);
 
 	nsec->mon_lr = (uint32_t)entry;
@@ -595,7 +613,8 @@ static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 	//DMSG("Back from power down. (entry=0x%x, context_id=0x%x)",
 	//	(uint32_t)entry, context_id);
 	
-	console_putc('-');
+	//console_putc('-');
+	DMSG("cpu %d resume from idle (context lost)", get_core_pos());
 	//DMSG("After: cntpct=0x%llx, cntvct=0x%llx, cntfrq=0x%x, cntkctl=0x%x"
 	//	", cntvoff=0x%llx",
 	//	read_cntpct(), read_cntvct(), read_cntfrq(), read_cntkctl(),
@@ -605,16 +624,24 @@ static int imx7_do_context_losing_lpm(uint32_t lpm_flags,
 }
 
 /* Enter low power mode using the specified options */
-static int imx7_lpm(uint32_t lpm_flags, uintptr_t entry,
+static int imx7_lpm(uint32_t state_id, uint32_t lpm_flags, uintptr_t entry,
 	     uint32_t context_id, struct sm_nsec_ctx *nsec)
 {
 	int ret;
 	uint32_t val;
 	struct imx7_pm_info *p = lpi_info;
+	int state_idx = (state_id & 0xf) - 4;
 
-	val = atomic_dec32(&active_cores);
-	if ((lpm_flags & LPM_INITIATING_CORE) && (val != 0)) {
-		atomic_inc32(&active_cores);
+	p->num_online_cpus = get_online_cpus();
+
+	val = atomic_inc32(&cores_in_state_count[state_idx]);
+	DMSG("cpu = %d, state_idx = %d, val = %d",
+		get_core_pos(), state_idx, val);
+
+	if ((lpm_flags & LPM_INITIATING_CORE) && (val != p->num_online_cpus)) {
+		EMSG("Denied! val=%d, p->num_online_cpus=%d", val,
+			p->num_online_cpus);
+		atomic_dec32(&cores_in_state_count[state_idx]);
 		return PSCI_RET_DENIED;
 	}
 
@@ -629,7 +656,7 @@ static int imx7_lpm(uint32_t lpm_flags, uintptr_t entry,
 	if (lpm_flags & LPM_INITIATING_CORE)
 		imx7_set_run_mode(p);
 
-	atomic_inc32(&active_cores);
+	atomic_dec32(&cores_in_state_count[state_idx]);
 	return ret;
 }
 
@@ -657,7 +684,7 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 	case MX7_STATEID_CORE_CLOCK_GATE |
 		PSCI_EXT_POWER_STATE_TYPE_POWER_DOWN:
 	case MX7_STATEID_CORE_CLOCK_GATE:
-		return imx7_lpm(LPM_STATE_CLOCK_GATED,
+		return imx7_lpm(power_state, LPM_STATE_CLOCK_GATED,
 				entry, context_id, nsec);
 
 	case MX7_STATEID_CORE_CLOCK_GATE | MX7_STATEID_CLUSTER_CLOCK_GATE |
@@ -665,11 +692,24 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 	case MX7_STATEID_CORE_CLOCK_GATE | MX7_STATEID_CLUSTER_CLOCK_GATE |
 		MX7_LEVELID_CLUSTER:
 
-		return imx7_lpm(LPM_STATE_CLOCK_GATED | LPM_INITIATING_CORE,
+		return imx7_lpm(power_state,
+				LPM_STATE_CLOCK_GATED | LPM_INITIATING_CORE,
 				entry, context_id, nsec);
+	case 0x40000005:
+		return imx7_lpm(
+			power_state,
+			LPM_MODE_WAIT |
+			LPM_STOP_ARM_CLOCK |
+			LPM_POWER_DOWN_CORES |
+			LPM_POWER_DOWN_SCU |
+			LPM_POWER_DOWN_L2,
+			entry,
+			context_id,
+			nsec);
 
 	case 0x41000055:
 		return imx7_lpm(
+			power_state,
 			LPM_MODE_WAIT |
 			LPM_STOP_ARM_CLOCK |
 			LPM_POWER_DOWN_CORES |
@@ -685,12 +725,12 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 		gpt_init();
 		for (;;) {
 
-			
 			gpt_schedule_interrupt(1);
 			gpt_wait_for_interrupt();
 
-			//DMSG("Attempting first LPM with interrupt asserted");
+			DMSG("Attempting first LPM with interrupt asserted");
 			imx7_lpm(
+				0x41000055,
 				LPM_MODE_WAIT |
 				LPM_STOP_ARM_CLOCK |
 				LPM_POWER_DOWN_CORES |
@@ -700,12 +740,13 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 				entry,
 				context_id,
 				nsec);
-			
-			//DMSG("Attempting second LPM");
+
+			DMSG("Attempting second LPM");
 			
 			gpt_schedule_interrupt(10);
 
 			imx7_lpm(
+				0x41000055,
 				LPM_MODE_WAIT |
 				LPM_STOP_ARM_CLOCK |
 				LPM_POWER_DOWN_CORES |
@@ -717,7 +758,7 @@ int imx7_cpu_suspend(uint32_t power_state, uintptr_t entry,
 				nsec);
 
 			gpt_ack_interrupt();
-			//DMSG("Back from second LPM");
+			DMSG("Back from second LPM");
 		}
 
 	default:

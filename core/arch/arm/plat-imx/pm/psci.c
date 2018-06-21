@@ -26,7 +26,7 @@
 #include <tee/entry_fast.h>
 #include <atomic.h>
 
-uint32_t active_cores = 1;
+uint32_t online_cores = 1;
 
 int psci_features(uint32_t psci_fid)
 {
@@ -67,7 +67,10 @@ int psci_cpu_on(uint32_t core_idx, uint32_t entry,
 	if ((core_idx == 0) || (core_idx >= CFG_TEE_CORE_NB_CORE))
 		return PSCI_RET_INVALID_PARAMETERS;
 
-	atomic_inc32(&active_cores);
+	if (online_cores & (1 << core_idx))
+		return PSCI_RET_SUCCESS;
+	
+	online_cores |= 1 << core_idx;
 
 	/* set secondary cores' NS entry addresses */
 	generic_boot_set_core_ns_entry(core_idx, entry, context_id);
@@ -109,7 +112,7 @@ int psci_cpu_off(void)
 
 	DMSG("core_id: %" PRIu32, core_id);
 
-	atomic_dec32(&active_cores);
+	online_cores &= ~(1 << core_id);
 
 	psci_armv7_cpu_off();
 

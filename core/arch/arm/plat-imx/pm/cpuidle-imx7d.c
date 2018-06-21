@@ -135,7 +135,7 @@ static void imx_pen_unlock(int cpu)
 		atomic_store_u32(&p->flag1, 0);
 }
 
-static uint32_t get_online_cpus(void)
+uint32_t get_online_cpus(void)
 {
 	vaddr_t src_a7rcr1 = core_mmu_get_va(SRC_BASE + SRC_A7RCR1,
 					     MEM_AREA_IO_SEC);

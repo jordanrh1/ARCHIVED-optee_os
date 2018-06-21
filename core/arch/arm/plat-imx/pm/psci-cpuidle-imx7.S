@@ -88,9 +88,11 @@
 	.macro  disable_l1_dcache
 
 	push	{r0 - r12, lr}
-	mov	r0, #DCACHE_OP_CLEAN_INV
-	ldr	r1, =dcache_op_all
-	blx	r1
+	mov	r0, #6 // #DCACHE_CLEAN_INV
+	mov	r1, #0
+	mov	r2, #0
+	ldr	r3, =cache_op_inner
+	blx	r3
 	pop	{r0 - r12, lr}
 
 	/* disable d-cache */
@@ -101,9 +103,11 @@
 	isb
 
 	push	{r0 - r12, lr}
-	mov	r0, #DCACHE_OP_CLEAN_INV
-	ldr	r1, =dcache_op_all
-	blx	r1
+	mov	r0, #6   // DCACHE_CLEAN_INV
+	mov	r1, #0
+	mov	r2, #0
+	ldr	r3, =cache_op_inner
+	blx	r3
 	pop	{r0 - r12, lr}
 
 	/* TODO: handle non-SMP kernel */

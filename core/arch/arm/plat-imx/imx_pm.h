@@ -96,11 +96,12 @@ int imx7d_lowpower_idle(uint32_t power_state, uintptr_t entry,
 void imx7d_low_power_idle(struct imx7_pm_info *info);
 int imx7d_cpuidle_init(void);
 void v7_cpu_resume(void);
+uint32_t get_online_cpus(void);
 
 extern struct imx7_pm_info *suspend_info;
 extern struct imx7_pm_info *lpi_info;
 extern struct gic_data gic_data;
-extern uint32_t active_cores;
+extern uint32_t online_cores;
 extern uint32_t resume;
 #endif
 
